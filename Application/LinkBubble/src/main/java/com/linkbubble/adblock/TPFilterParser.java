@@ -18,15 +18,29 @@ public class TPFilterParser {
     public TPFilterParser(Context context) {
         mVerNumber = ADBlockUtils.getDataVerNumber(context.getString(R.string.tracking_protection_url));
         mBuffer = ADBlockUtils.readData(context, context.getString(R.string.tracking_protection_localfilename),
-                context.getString(R.string.tracking_protection_url), ETAG_PREPEND, mVerNumber);
+                context.getString(R.string.tracking_protection_url), ETAG_PREPEND, mVerNumber, false);
         if (mBuffer != null) {
             init(mBuffer);
         }
     }
 
+    public boolean matchesTrackerJava(String baseHost, String host) {
+        if (null == mBuffer) {
+            return false;
+        }
+
+        return matchesTracker(baseHost, host);
+    }
+    public String findFirstPartyHostsJava(String baseHost) {
+        if (null == mBuffer) {
+            return "";
+        }
+
+        return findFirstPartyHosts(baseHost);
+    }
 
     public native void init(byte[] data);
-    public native boolean matchesTracker(String baseHost);
+    public native boolean matchesTracker(String baseHost, String host);
     public native String findFirstPartyHosts(String baseHost);
 
     private byte[] mBuffer;

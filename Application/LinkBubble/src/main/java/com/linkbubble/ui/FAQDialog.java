@@ -43,7 +43,6 @@ public class FAQDialog {
         "faq_close_tab",
         "faq_article_mode",
         "faq_next_update_eta",
-        "faq_beta_programme",
         "faq_translations",
 
         "faq_back_button_minimize",
@@ -60,10 +59,10 @@ public class FAQDialog {
         "faq_report_bug",
     };
 
-    static int sBetaIndex = 4;
-    static int sTransliationsIndex = 5;
-    static int sFunctionalityIndex = 6;
-    static int sIssuesIndex = 15;
+    static int sBetaIndex = 3;
+    static int sTransliationsIndex = 4;
+    static int sFunctionalityIndex = 5;
+    static int sIssuesIndex = 14;
 
 	public FAQDialog(Activity context) {
         if (sQuestionStringIds == null) {
@@ -103,6 +102,7 @@ public class FAQDialog {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
                 if (position == sBetaIndex) {
+                    // We do not use it with Brave, maybe have to remove.
                     Intent i = new Intent(Intent.ACTION_VIEW);
                     i.setData(Uri.parse("http://linkbubble.com/device/link_bubble_beta.html"));
                     mActivity.startActivity(i);
@@ -112,7 +112,7 @@ public class FAQDialog {
                     mActivity.startActivity(i);
                 } else if (position == sFAQSize-1) {
                     Intent emailIntent = new Intent(Intent.ACTION_SENDTO,
-                                                    Uri.fromParts("mailto", "support@linkbubble.com", null));
+                                                    Uri.fromParts("mailto", "support+linkbubble@brave.com", null));
                     String appVersion = BuildConfig.VERSION_NAME;
                     String subject = "[Link Bubble] Report a bug (v" + appVersion + ", Android " + Constant.getOSFlavor()
                             + ", " + android.os.Build.MODEL + ", " + Locale.getDefault().getLanguage() + ")";

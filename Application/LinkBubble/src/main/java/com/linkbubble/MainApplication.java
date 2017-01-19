@@ -6,6 +6,9 @@ package com.linkbubble;
 
 import android.app.AlertDialog;
 import android.app.Application;
+import android.app.Notification;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -18,16 +21,22 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Vibrator;
+import android.support.v4.app.NotificationCompat;
+import android.webkit.WebView;
 import android.widget.Toast;
 
 import com.crashlytics.android.Crashlytics;
 import com.linkbubble.Constant.BubbleAction;
 import com.linkbubble.adblock.ABPFilterParser;
 import com.linkbubble.adblock.TPFilterParser;
+import com.linkbubble.adblock.WhiteListCollector;
 import com.linkbubble.adinsert.AdInserter;
 import com.linkbubble.db.DatabaseHelper;
 import com.linkbubble.db.HistoryRecord;
+import com.linkbubble.httpseverywhere.HttpsEverywhere;
+import com.linkbubble.ui.NotificationNewBraveBrowserActivity;
 import com.linkbubble.ui.Prompt;
 import com.linkbubble.ui.SearchURLSuggestionsContainer;
 import com.linkbubble.ui.SettingsActivity;
@@ -60,9 +69,11 @@ public class MainApplication extends Application {
     public static boolean sShowingAppPickerDialog = false;
     private static long sTrialStartTime = -1;
 
+    private HttpsEverywhere mHttpsEverywhere = null;
     private ABPFilterParser mABPParser = null;
     private TPFilterParser mTPParser = null;
     private AdInserter mADInserter = null;
+    private WhiteListCollector mWhiteListCollector = null;
     public boolean mAdInserterEnabled = false;
 
     public IconCache mIconCache;
@@ -90,11 +101,16 @@ public class MainApplication extends Application {
         Favicons.attachToContext(this);
         recreateFaviconCache();
 
-        if (Settings.get().isAdBlockEnabled()) {
-            mBus.post(new SettingsMoreActivity.AdBlockTurnOnEvent());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            if (Settings.get().isAdBlockEnabled()) {
+                mBus.post(new SettingsMoreActivity.AdBlockTurnOnEvent());
+            }
+            if (Settings.get().isTrackingProtectionEnabled()) {
+                mBus.post(new SettingsMoreActivity.TrackingProtectionTurnOnEvent());
+            }
         }
-        if (Settings.get().isTrackingProtectionEnabled()) {
-            mBus.post(new SettingsMoreActivity.TrackingProtectionTurnOnEvent());
+        if (Settings.get().isHttpsEverywhereEnabled()) {
+            mBus.post(new SettingsMoreActivity.HttpsEverywhereTurnOnEvent());
         }
         // Enable ad insertion for Crashlytics builds and disable for play store builds
         ApplicationInfo appInfo = getApplicationInfo();
@@ -102,13 +118,76 @@ public class MainApplication extends Application {
             mAdInserterEnabled = true;
             new DownloadAdInsertionDataAsyncTask().execute();
         }
+        new InitWhiteListCollectorAsyncTask().execute();
+
+
+        Settings settings = Settings.get();
+        if (null != settings && settings.showNewBraveBrowserNotification()) {
+            // Check if there is a new Brave Browser already installed
+            List<String> browsersPackageNames = settings.getBrowserPackageNames();
+            if (null != browsersPackageNames && !browsersPackageNames.contains(getResources().getString(R.string.tab_based_browser_id_name))) {
+                showNewBraveBrowserHiddenNotification();
+            }
+        }
 
         CrashTracking.log("MainApplication.onCreate()");
+        //WebView.setWebContentsDebuggingEnabled(true);
         //checkStrings();
+    }
+
+    private void showNewBraveBrowserHiddenNotification() {
+        Intent resultIntent = new Intent(this, NotificationNewBraveBrowserActivity.class);
+        resultIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED | Intent.FLAG_ACTIVITY_NEW_TASK);
+        PendingIntent resultPendingIntent =
+                PendingIntent.getActivity(
+                        this,
+                        0,
+                        resultIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT);
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this)
+                .setSmallIcon(R.drawable.ic_stat)
+                .setContentTitle(getResources().getString(R.string.tab_based_browser_notification_title))
+                .setContentText(getResources().getString(R.string.tab_based_browser_notification_text))
+                .setAutoCancel(true)
+                .setContentIntent(resultPendingIntent);
+
+        // Gets an instance of the NotificationManager service
+        NotificationManager notifyMgr =
+                (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        // Builds the notification and issues it.
+        notifyMgr.notify(NotificationNewBraveBrowserActivity.NOTIFICATION_ID, builder.build());
+    }
+
+    class InitWhiteListCollectorAsyncTask extends AsyncTask<Void,Void,Long> {
+
+        protected Long doInBackground(Void... params) {
+            initWhiteListCollector();
+
+            return null;
+        }
     }
 
     public Bus getBus() {
         return mBus;
+    }
+
+    public void enableHttpsEverywhere() {
+        if (null == mHttpsEverywhere) {
+            mHttpsEverywhere = new HttpsEverywhere(this);
+        }
+    }
+
+    public HttpsEverywhere getHttpsEverywhere() { return mHttpsEverywhere; }
+
+    public void initWhiteListCollector() {
+        if (mWhiteListCollector == null) {
+            mWhiteListCollector = new WhiteListCollector(this);
+        }
+    }
+
+    public WhiteListCollector getWhiteListCollector() {
+        return mWhiteListCollector;
     }
 
     public void createTrackingProtectionList() {
@@ -245,7 +324,7 @@ public class MainApplication extends Application {
         context.startService(serviceIntent);
     }
 
-    public static boolean openInBrowser(Context context, Intent intent, boolean showToastIfNoBrowser) {
+    public static boolean openInBrowser(Context context, Intent intent, boolean showToastIfNoBrowser, boolean braveBrowser) {
         boolean activityStarted = false;
         ComponentName defaultBrowserComponentName = Settings.get().getDefaultBrowserComponentName(context);
         if (defaultBrowserComponentName != null) {
@@ -253,6 +332,21 @@ public class MainApplication extends Application {
             context.startActivity(intent);
             activityStarted = true;
             CrashTracking.log("MainApplication.openInBrowser()");
+        }
+        else if (braveBrowser) {
+            try {
+                Intent gpsIntent = new Intent(Intent.ACTION_VIEW);
+                gpsIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                gpsIntent.setData(Uri.parse("market://details?id=" + context.getResources().getString(R.string.tab_based_browser_id_name)));
+                context.startActivity(gpsIntent);
+                activityStarted = true;
+                Settings settings = Settings.get();
+                if (null != settings) {
+                    settings.initiateBrowsersUpdate();
+                }
+            } catch (android.content.ActivityNotFoundException anfe) {
+                CrashTracking.log("MainApplication.openInBrowser() could not open google play");
+            }
         }
 
         if (activityStarted == false && showToastIfNoBrowser) {
@@ -265,7 +359,7 @@ public class MainApplication extends Application {
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setData(Uri.parse(urlAsString));
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        return MainApplication.openInBrowser(context, intent, showToastIfNoBrowser);
+        return MainApplication.openInBrowser(context, intent, showToastIfNoBrowser, false);
     }
 
     public static boolean loadResolveInfoIntent(Context context, ResolveInfo resolveInfo, String url, long urlLoadStartTime) {
@@ -424,7 +518,12 @@ public class MainApplication extends Application {
             CrashTracking.log("post(" + simpleName + ")");
             sLastPostClassName = simpleName;
         }
-        app.getBus().post(event);
+        try {
+            app.getBus().post(event);
+        }
+        catch (RuntimeException exc) {
+            CrashTracking.logHandledException(exc);
+        }
     }
 
     public static void registerForBus(Context context, Object object) {
@@ -522,14 +621,13 @@ public class MainApplication extends Application {
     @SuppressWarnings("unused")
     @Subscribe
     public void onAdBlockOn(SettingsMoreActivity.AdBlockTurnOnEvent event) {
-        new DownloadAdBlockDataAsyncTask().execute();;
+        new DownloadAdBlockDataAsyncTask().execute();
     }
 
     class DownloadTrackingProtectionDataAsyncTask extends AsyncTask<Void,Void,Long> {
 
         protected Long doInBackground(Void... params) {
             createTrackingProtectionList();
-
             return null;
         }
     }
@@ -544,6 +642,20 @@ public class MainApplication extends Application {
 
         protected Long doInBackground(Void... params) {
             createAdInsertionList();
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unused")
+    @Subscribe
+    public void onHttpsEverywhereOn(SettingsMoreActivity.HttpsEverywhereTurnOnEvent event) {
+        new DownloadHttpsEverywhereDataAsyncTask().execute();
+    }
+
+    class DownloadHttpsEverywhereDataAsyncTask extends AsyncTask<Void,Void,Long> {
+
+        protected Long doInBackground(Void... params) {
+            enableHttpsEverywhere();
 
             return null;
         }
@@ -571,6 +683,7 @@ public class MainApplication extends Application {
             Log.d("langcheck", getResources().getQuantityString(R.plurals.restore_tabs_from_previous_session, 1, 1));
             Log.d("langcheck", getResources().getQuantityString(R.plurals.restore_tabs_from_previous_session, 2, 2));
             Log.d("langcheck", String.format(getString(R.string.search_for_with), blerg, blerg));
+            Log.d("langcheck", String.format(getString(R.string.duckduckgo_search_engine), blerg));
         }
     }*/
 }

@@ -4,6 +4,10 @@
 
 package com.linkbubble;
 
+import android.animation.Animator;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
+import android.app.ActionBar;
 import android.app.AlertDialog;
 import android.app.KeyguardManager;
 import android.content.Context;
@@ -14,18 +18,27 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
+import android.support.annotation.NonNull;
 import android.util.Log;
 import android.view.Choreographer;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.animation.AccelerateDecelerateInterpolator;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.AnticipateOvershootInterpolator;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.TranslateAnimation;
 import android.webkit.CookieManager;
 import android.webkit.CookieSyncManager;
 import android.webkit.ValueCallback;
+import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -48,12 +61,18 @@ import com.squareup.otto.Subscribe;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Vector;
 
 public class MainController implements Choreographer.FrameCallback {
 
     private static final String TAG = "MainController";
+    private static final int PIXELS_TO_SKIP_BEFORE_SCROLL = 50;
+    private static final int ANIMATION_DURATION_BUBBLES_HIDE = 850;
+    private static final int ANIMATION_DURATION_BUBBLES_SHOW = 765;
 
     protected static MainController sInstance;
 
@@ -79,7 +98,16 @@ public class MainController implements Choreographer.FrameCallback {
     }
 
     public static class BeginCollapseTransitionEvent {
+        public BeginCollapseTransitionEvent() {
+            mFromCloseSystemDialogs = false;
+        }
+
+        public BeginCollapseTransitionEvent(boolean fromCloseSystemDialogs) {
+            mFromCloseSystemDialogs = fromCloseSystemDialogs;
+        }
+
         public float mPeriod;
+        public boolean mFromCloseSystemDialogs;
     }
 
     public static class EndCollapseTransitionEvent {
@@ -90,12 +118,15 @@ public class MainController implements Choreographer.FrameCallback {
 
     public static class CurrentTabChangedEvent {
         public CurrentTabChangedEvent() {
+            mUnhideNotification = false;
         }
 
-        public CurrentTabChangedEvent(TabView tabView) {
+        public CurrentTabChangedEvent(TabView tabView, boolean unhideNotification) {
             mTab = tabView;
+            mUnhideNotification = unhideNotification;
         }
         public TabView mTab;
+        public boolean mUnhideNotification;
     }
 
     public static class CurrentTabResumeEvent {
@@ -167,6 +198,7 @@ public class MainController implements Choreographer.FrameCallback {
                 // Hack to ensure BubbleFlowDraggable doesn't display in Bubble mode, fix #457
                 if (v instanceof BubbleFlowView) {
                     ((BubbleFlowView)v).forceCollapseEnd();
+                    ((BubbleFlowDraggable)v).setCurrentTabAsActive();
                 }
             }
             mRootWindowsVisible = true;
@@ -202,6 +234,8 @@ public class MainController implements Choreographer.FrameCallback {
     private ScreenOffEvent mScreenOffEvent = new ScreenOffEvent();
     private boolean mScreenOn = true;
     private java.util.Timer mTimer = null;
+
+    private boolean mHeightSizeTopMargin = false;
 
     private static class OpenUrlInfo {
         String mUrlAsString;
@@ -275,6 +309,10 @@ public class MainController implements Choreographer.FrameCallback {
     private BubbleDraggable mBubbleDraggable;
 
     private long mPreviousFrameTime;
+    private WindowManager.LayoutParams mOriginalBubbleFlowDraggableParams;
+    private float mOriginalLocationY = 0;
+    private int mPreviousBubbleAdjustmentValue = 0;
+    private float mCurrentAdjustment = 0;
 
     // false if the user has forcibilty minimized the Bubbles from ContentView. Set back to true once a new link is loaded.
     private boolean mCanAutoDisplayLink;
@@ -412,6 +450,8 @@ public class MainController implements Choreographer.FrameCallback {
         mBubbleFlowDraggable.collapse(0, null);
         mBubbleFlowDraggable.setBubbleDraggable(mBubbleDraggable);
         mBubbleFlowDraggable.setVisibility(View.GONE);
+        mOriginalBubbleFlowDraggableParams = (WindowManager.LayoutParams)mBubbleFlowDraggable.getLayoutParams();
+        mOriginalLocationY = mBubbleFlowDraggable.getChildAt(0).getY();
 
         mBubbleDraggable.setBubbleFlowDraggable(mBubbleFlowDraggable);
     }
@@ -426,6 +466,112 @@ public class MainController implements Choreographer.FrameCallback {
     private TextView mTextView;
     private WindowManager.LayoutParams mWindowManagerParams = new WindowManager.LayoutParams();
 
+    public void adjustBubblesPanel(int newY, int oldY, boolean afterTouchAdjust, boolean resetToOriginal) {
+        Settings settings = Settings.get();
+        if (null != settings && !settings.isHideBubbles()) {
+            return;
+        }
+
+        TabView currentTabView = getCurrentTab();
+
+        if (null == mOriginalBubbleFlowDraggableParams || null == currentTabView || !afterTouchAdjust && !resetToOriginal &&
+                (mPreviousBubbleAdjustmentValue - newY > (0 - PIXELS_TO_SKIP_BEFORE_SCROLL) &&
+                        mPreviousBubbleAdjustmentValue - newY < PIXELS_TO_SKIP_BEFORE_SCROLL)) {
+            return;
+        }
+        final int toolbarHeight = currentTabView.toolbarHeight();
+        int adjustOn = newY - mPreviousBubbleAdjustmentValue;
+        if (afterTouchAdjust) {
+            adjustOn = 0;
+        }
+        FrameLayout.LayoutParams currentParams = null;
+        try {
+            currentParams = (FrameLayout.LayoutParams) mBubbleFlowDraggable.getChildAt(0).getLayoutParams();
+        }
+        catch (NullPointerException exc) {
+        }
+        if (null == currentParams) {
+            return;
+        }
+        float oldAdjustment = mCurrentAdjustment;
+        if (!afterTouchAdjust && 0 == oldY &&
+                adjustOn > (0 - PIXELS_TO_SKIP_BEFORE_SCROLL) && adjustOn < PIXELS_TO_SKIP_BEFORE_SCROLL || resetToOriginal) {
+            mCurrentAdjustment = mOriginalLocationY;
+            mHeightSizeTopMargin = false;
+        }
+        else if (0 == adjustOn) {
+            int half = (mOriginalBubbleFlowDraggableParams.height + currentParams.height) / 2;
+            int third = (mOriginalBubbleFlowDraggableParams.height + currentParams.height) / 3;
+            if (0 - mCurrentAdjustment > third && mPreviousBubbleAdjustmentValue > half) {
+                mCurrentAdjustment = 0 - (mOriginalBubbleFlowDraggableParams.height + currentParams.height + toolbarHeight);
+                mHeightSizeTopMargin = true;
+            }
+            else {
+                mCurrentAdjustment = mOriginalLocationY;
+                mHeightSizeTopMargin = false;
+            }
+        }
+        else {
+            mCurrentAdjustment += 0 - adjustOn;
+            if (mCurrentAdjustment + (mOriginalBubbleFlowDraggableParams.height + currentParams.height + toolbarHeight) < 0) {
+                mCurrentAdjustment = 0 - (mOriginalBubbleFlowDraggableParams.height + currentParams.height + toolbarHeight);
+                mHeightSizeTopMargin = true;
+            } else if (mCurrentAdjustment > mOriginalLocationY) {
+                mCurrentAdjustment = mOriginalLocationY;
+                mHeightSizeTopMargin = false;
+            }
+        }
+        if (0 != adjustOn) {
+            mPreviousBubbleAdjustmentValue = newY;
+        }
+        if (mCurrentAdjustment == oldAdjustment) {
+            return;
+        }
+        int animationDuration = ANIMATION_DURATION_BUBBLES_HIDE;
+        if (adjustOn < 0 ) {
+            animationDuration = ANIMATION_DURATION_BUBBLES_SHOW;
+        }
+        if (currentTabView.adjustBubblesPanel(mCurrentAdjustment, mHeightSizeTopMargin, animationDuration)) {
+            ObjectAnimator animator = ObjectAnimator.ofFloat(mBubbleFlowDraggable.getChildAt(0), "translationY", mCurrentAdjustment)
+                    .setDuration(animationDuration);
+            animator.addListener(new Animator.AnimatorListener() {
+                @Override
+                public void onAnimationStart(Animator animator) {
+                    if (!mHeightSizeTopMargin) {
+                        if (mBubbleFlowDraggable.isExpanded()) {
+                            mBubbleFlowDraggable.setVisibility(View.VISIBLE);
+                        }
+                    }
+                }
+
+                @Override
+                public void onAnimationEnd(Animator animator) {
+                    if (!mHeightSizeTopMargin) {
+                        if (mBubbleFlowDraggable.isExpanded()) {
+                            mBubbleFlowDraggable.setVisibility(View.VISIBLE);
+                        }
+                    } else  {
+                        TabView view = mBubbleFlowDraggable.getCurrentTab();
+                        if (null != view && !view.mIsClosing) {
+                            mBubbleFlowDraggable.setVisibility(View.GONE);
+                        }
+                    }
+                }
+
+                @Override
+                public void onAnimationCancel(Animator animator) {
+
+                }
+
+                @Override
+                public void onAnimationRepeat(Animator animator) {
+
+                }
+            });
+            animator.start();
+        }
+    }
+
     public void onPageLoaded(TabView tab, boolean withError) {
         // Ensure this is not an edge case where the Tab has already been destroyed, re #254
         if (getActiveTabCount() == 0 || isTabActive(tab) == false) {
@@ -434,8 +580,13 @@ public class MainController implements Choreographer.FrameCallback {
 
         // Debounce the saving call so we don't attempt to save after every concurrent page load, causing potential problems with the database connection.
         if (mTimer != null) {
-            mTimer.cancel();
-            mTimer.purge();
+            try {
+                mTimer.cancel();
+                mTimer.purge();
+            }
+            catch (NullPointerException exc) {
+                // We can have a crash here sometimes when several pages loaded at one time, some of threads will do those calls in any case
+            }
         }
 
         mTimer = new java.util.Timer();
@@ -543,6 +694,9 @@ public class MainController implements Choreographer.FrameCallback {
         mBubbleFlowDraggable.setTouchInterceptor(mBubbleFlowTouchInterceptor);
         mBubbleFlowDraggable.collapse(Constant.BUBBLE_ANIM_TIME, mOnBubbleFlowCollapseFinishedListener);
         mBubbleDraggable.setVisibility(View.VISIBLE);
+        if (mBubbleFlowDraggable.getTouchInterceptor() != null) {
+            mBubbleFlowDraggable.setInterceptingTouch(true);
+        }
     }
 
     public BubbleDraggable getBubbleDraggable() {
@@ -670,7 +824,7 @@ public class MainController implements Choreographer.FrameCallback {
         if (delta < 200) {
             return;
         }
-        switchToBubbleView();
+        switchToBubbleView(true);
     }
 
     // Before this version select elements would crash WebView in a background service
@@ -756,7 +910,7 @@ public class MainController implements Choreographer.FrameCallback {
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setData(Uri.parse(urlAsString));
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            if (MainApplication.openInBrowser(mContext, intent, false)) {
+            if (MainApplication.openInBrowser(mContext, intent, false, false)) {
                 if (getActiveTabCount() == 0 && Prompt.isShowing() == false) {
                     finish();
                 }
@@ -770,7 +924,12 @@ public class MainController implements Choreographer.FrameCallback {
         boolean showAppPicker = false;
 
         PackageManager packageManager = mContext.getPackageManager();
-        final List<ResolveInfo> resolveInfos = Settings.get().getAppsThatHandleUrl(url.toString(), packageManager);
+        String urlString = urlAsString.toString();
+        List<ResolveInfo> tempResolveInfos = new ArrayList<>();
+        if (!urlString.equals(mContext.getString(R.string.empty_bubble_page))) {
+            tempResolveInfos = Settings.get().getAppsThatHandleUrl(urlString, packageManager);
+        }
+        final List<ResolveInfo> resolveInfos = tempResolveInfos;
         ResolveInfo defaultAppResolveInfo = Settings.get().getDefaultAppForUrl(url, resolveInfos);
         if (resolveInfos != null && resolveInfos.size() > 0) {
             if (defaultAppResolveInfo != null) {
@@ -784,7 +943,8 @@ public class MainController implements Choreographer.FrameCallback {
             } else {
                 // If LinkBubble is a valid resolve target, do not show other options to open the content.
                 for (ResolveInfo info : resolveInfos) {
-                    if (info.activityInfo.packageName.startsWith("com.linkbubble.playstore")) {
+                    if (info.activityInfo.packageName.startsWith("com.linkbubble.playstore")
+                            || info.activityInfo.packageName.startsWith("com.brave.playstore")) {
                         showAppPicker = false;
                         break;
                     } else {
@@ -801,7 +961,8 @@ public class MainController implements Choreographer.FrameCallback {
             openedFromItself = true;
         }
         mCanAutoDisplayLink = true;
-        final TabView result = openUrlInTab(urlAsString, urlLoadStartTime, setAsCurrentTab, showAppPicker);
+        final TabView result = openUrlInTab(urlAsString, urlLoadStartTime, setAsCurrentTab, showAppPicker,
+                !(null == openedFromAppName ? false : openedFromAppName.equals(Analytics.OPENED_URL_FROM_MAIN_NEW_TAB)));
 
         // Show app picker after creating the tab to load so that we have the instance to close if redirecting to an app, re #292.
         if (!openedFromItself && showAppPicker && MainApplication.sShowingAppPickerDialog == false && 0 != resolveInfos.size()) {
@@ -836,7 +997,7 @@ public class MainController implements Choreographer.FrameCallback {
                                 }
                                 // L_WATCH: L currently lacks getRecentTasks(), so minimize here
                                 if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-                                    MainController.get().switchToBubbleView();
+                                    MainController.get().switchToBubbleView(false);
                                 }
                             }
                         }
@@ -857,7 +1018,8 @@ public class MainController implements Choreographer.FrameCallback {
         return result;
     }
 
-    protected TabView openUrlInTab(String url, long urlLoadStartTime, boolean setAsCurrentTab, boolean hasShownAppPicker) {
+    protected TabView openUrlInTab(String url, long urlLoadStartTime, boolean setAsCurrentTab, boolean hasShownAppPicker,
+                                   boolean performEmptyClick) {
         setHiddenByUser(false);
 
         if (getActiveTabCount() == 0) {
@@ -875,7 +1037,7 @@ public class MainController implements Choreographer.FrameCallback {
             }
         }
 
-        TabView result = mBubbleFlowDraggable.openUrlInTab(url, urlLoadStartTime, setAsCurrentTab, hasShownAppPicker);
+        TabView result = mBubbleFlowDraggable.openUrlInTab(url, urlLoadStartTime, setAsCurrentTab, hasShownAppPicker, performEmptyClick);
         showBadge(getActiveTabCount() > 1 ? true : false);
         ++mBubblesLoaded;
 
@@ -994,6 +1156,9 @@ public class MainController implements Choreographer.FrameCallback {
         }
 
         boolean contentViewShowing = contentViewShowing();
+        if (contentViewShowing && mBubbleFlowDraggable.getVisibility() == View.GONE && mBubbleFlowDraggable.isExpanded()) {
+            mBubbleFlowDraggable.setVisibility(View.VISIBLE);
+        }
         CrashTracking.log("MainController.closeTab(): action:" + action.toString() + ", contentViewShowing:" + contentViewShowing
                 + ", visibleTabCount:" + getVisibleTabCount() + ", activeTabCount:" + getActiveTabCount() + ", canShowUndoPrompt:" + canShowUndoPrompt
                 + ", animateOff:" + animateOff + ", canShowUndoPrompt:" + canShowUndoPrompt);
@@ -1002,6 +1167,13 @@ public class MainController implements Choreographer.FrameCallback {
         }
 
         int activeTabCount = getActiveTabCount();
+
+        if (activeTabCount > 0
+                && null != mBubbleFlowDraggable.getCurrentTab()
+                && mBubbleFlowDraggable.isExpanded()) {
+            adjustBubblesPanel(0, 0, false, true);
+        }
+
         showBadge(activeTabCount > 1 ? true : false);
         if (activeTabCount == 0) {
             hideBubbleDraggable();
@@ -1111,13 +1283,31 @@ public class MainController implements Choreographer.FrameCallback {
     }
 
     public void collapseBubbleFlow(long time) {
+        try {
+            mCurrentAdjustment = mOriginalLocationY;
+            TabView currentTabView = getCurrentTab();
+            if (null != currentTabView) {
+                if (currentTabView.adjustBubblesPanel(mCurrentAdjustment, false, 0)) {
+                    ObjectAnimator
+                            .ofFloat(mBubbleFlowDraggable.getChildAt(0), "translationY", mCurrentAdjustment)
+                            .setDuration(ANIMATION_DURATION_BUBBLES_SHOW)
+                            .start();
+                }
+            }
+            if (mBubbleFlowDraggable.isExpanded()) {
+                mBubbleFlowDraggable.setVisibility(View.VISIBLE);
+            }
+        }
+        catch (NullPointerException exc) {
+        }
+
         mBubbleFlowDraggable.collapse(time, mOnBubbleFlowCollapseFinishedListener);
     }
 
-    public void switchToBubbleView() {
+    public void switchToBubbleView(boolean fromCloseSystemDialogs) {
         mCanAutoDisplayLink = false;
         if (MainController.get().getActiveTabCount() > 0) {
-            mBubbleDraggable.switchToBubbleView();
+            mBubbleDraggable.switchToBubbleView(fromCloseSystemDialogs);
         } else {
             // If there's no tabs, ensuring pressing Home will cause the CanvasView to go away. Fix #448
             MainApplication.postEvent(mContext, new MainController.EndCollapseTransitionEvent());
@@ -1143,7 +1333,7 @@ public class MainController implements Choreographer.FrameCallback {
     AppPoller.AppPollerListener mAppPollerListener = new AppPoller.AppPollerListener() {
         @Override
         public void onAppChanged() {
-            switchToBubbleView();
+            switchToBubbleView(false);
         }
     };
 
@@ -1201,7 +1391,7 @@ public class MainController implements Choreographer.FrameCallback {
                 MainApplication.postEvent(mContext, new HideContentEvent());
                 MainApplication.postEvent(mContext, new MainService.ShowUnhideNotificationEvent());
             } else {
-                MainApplication.postEvent(mContext, new CurrentTabChangedEvent(mBubbleFlowDraggable.getCurrentTab()));
+                MainApplication.postEvent(mContext, new CurrentTabChangedEvent(mBubbleFlowDraggable.getCurrentTab(), true));
                 MainApplication.postEvent(mContext, new MainService.ShowDefaultNotificationEvent());
                 MainApplication.postEvent(mContext, new UnhideContentEvent());
             }

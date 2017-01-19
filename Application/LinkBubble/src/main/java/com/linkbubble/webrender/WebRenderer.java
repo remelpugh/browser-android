@@ -23,10 +23,14 @@ public abstract class WebRenderer {
     }
 
     public interface Controller {
+        public void resetBubblePanelAdjustment();
+        public void adjustBubblesPanel(int newY, int oldY, boolean afterTouchAdjust);
         public boolean shouldAdBlockUrl(String baseHost, String urlStr, String filterOption);
         public boolean shouldTrackingProtectionBlockUrl(String baseHost, String host);
         public String adInsertionList(String baseHost);
+        public String getHTTPSUrl(String originalUrl);
         public boolean shouldOverrideUrlLoading(String urlAsString, boolean viaUserInput);
+        public void doUpdateVisitedHistory (String url, boolean isReload, boolean unknownClick);
         public void onLoadUrl(String urlAsString);      // may or may not be called
         public void onReceivedError();
         public void onPageStarted(String urlAsString, Bitmap favIcon);

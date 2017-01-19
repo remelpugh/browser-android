@@ -86,9 +86,13 @@ public class Settings {
     public static final String PREFERENCE_AUTO_ARTICLE_MODE = "preference_auto_article_mode";
     public static final String PREFERENCE_INCOGNITO_MODE = "preference_incognito";
 
+    public static final String PREFERENCE_HIDE_BUBBLES = "preference_hide_bubbles";
+
     public static final String PREFERENCE_WEBVIEW_BATTERY_SAVING_MODE = "preference_webview_battery_save_v2";
     public static final String PREFERENCE_TRACKINGPROTECTION_MODE = "preference_trackingprotection";
     public static final String PREFERENCE_ADBLOCK_MODE = "preference_adblock";
+    public static final String PREFERENCE_BLOCK_3P_COOKIES = "preference_block_3p";
+    public static final String PREFERENCE_HTTPS_EVERYWHERE_MODE = "preference_httpseverywhere";
 
     public static final String PREFERENCE_WEBVIEW_TEXT_ZOOM = "preference_webview_text_zoom2";
     public static final int     PREFERENCE_WEBVIEW_TEXT_ZOOM_MIN = 50;
@@ -108,6 +112,8 @@ public class Settings {
     private static final String WELCOME_MESSAGE_DISPLAYED = "welcome_message_displayed";
     private static final String TERMS_ACCEPTED = "terms_accepted";
     private static final String LAST_FLUSH_WEBVIEW_CACHE_TIME = "last_flush_cache_time";
+    private static final String PREFERENCE_DID_RESET_FALLBACK_BROWSER = "did_reset_fallback_browser";
+    private static final String PREFERENCE_SHOW_NEW_BRAVE_BROWSER = "show_new_brave_browser";
 
     public enum WebViewBatterySaveMode {
         Aggressive,
@@ -215,6 +221,14 @@ public class Settings {
                 editor.putLong(LAST_FLUSH_WEBVIEW_CACHE_TIME, System.currentTimeMillis() - Constant.EMPTY_WEBVIEW_CACHE_INTERVAL);
                 editor.apply();
             }
+            // This option is being added in 1.9.58 to reset fallback browser, to set it to tabbed Brave.
+            if (!mSharedPreferences.getBoolean(PREFERENCE_DID_RESET_FALLBACK_BROWSER, false)) {
+                SharedPreferences.Editor editor = mSharedPreferences.edit();
+                editor.putBoolean(PREFERENCE_DID_RESET_FALLBACK_BROWSER, true);
+                editor.remove(PREFERENCE_DEFAULT_BROWSER_PACKAGE_NAME);
+                editor.remove(PREFERENCE_DEFAULT_BROWSER_LABEL);
+                editor.apply();
+            }
         }
 
         configureDefaultApps(mSharedPreferences.getString(PREFERENCE_DEFAULT_APPS, null));
@@ -229,6 +243,19 @@ public class Settings {
         HashSet<String> defaultRedirects = new HashSet<>();
         defaultRedirects.add("accounts.google.com");
         configureFallbackRedirectHosts(mSharedPreferences.getStringSet(PREFERENCE_FALLBACK_REDIRECT_HOSTS, defaultRedirects));
+    }
+
+    public boolean showNewBraveBrowserNotification() {
+        // This option is being added in 1.9.58 to show notification about new tabbed Brave browser.
+        if (mSharedPreferences.getBoolean(PREFERENCE_SHOW_NEW_BRAVE_BROWSER, true)) {
+            SharedPreferences.Editor editor = mSharedPreferences.edit();
+            editor.putBoolean(PREFERENCE_SHOW_NEW_BRAVE_BROWSER, false);
+            editor.apply();
+
+            return true;
+        }
+
+        return false;
     }
 
     private void checkForVersionUpgrade() {
@@ -284,8 +311,15 @@ public class Settings {
     private void configureDefaultApp(PackageManager packageManager, String urlAsString, String desiredPackageName) {
         try {
             URL url = new URL(urlAsString);
-            final List<ResolveInfo> resolveInfos = getAppsThatHandleUrl(url.toString(), packageManager);
+            List<ResolveInfo> tempResolveInfos = new ArrayList<>();
+            if (!urlAsString.equals(mContext.getString(R.string.empty_bubble_page))) {
+                tempResolveInfos = getAppsThatHandleUrl(urlAsString, packageManager);
+            }
+            final List<ResolveInfo> resolveInfos = tempResolveInfos;
 
+            if (null == resolveInfos) {
+                return;
+            }
             for (ResolveInfo resolveInfo : resolveInfos) {
                 if (resolveInfo.activityInfo != null) {
                     String packageName = resolveInfo.activityInfo.packageName;
@@ -356,10 +390,7 @@ public class Settings {
                     intent.setClassName(resolveInfo.activityInfo.packageName, resolveInfo.activityInfo.name);
                     mBrowsers.add(intent);
                     mBrowserPackageNames.add(resolveInfo.activityInfo.packageName);
-                    if (fallbackDefaultBrowserPackageName == null) {
-                        fallbackDefaultBrowserPackageName = resolveInfo.activityInfo.packageName;
-                        fallbackDefaultBrowserActivityClassName = resolveInfo.activityInfo.name;
-                    } else if (resolveInfo.activityInfo.packageName.equals("com.android.chrome")) {
+                    if (resolveInfo.activityInfo.packageName.equals(mContext.getResources().getString(R.string.tab_based_browser_id_name))) {
                         fallbackDefaultBrowserPackageName = resolveInfo.activityInfo.packageName;
                         fallbackDefaultBrowserActivityClassName = resolveInfo.activityInfo.name;
                     }
@@ -368,7 +399,7 @@ public class Settings {
         }
 
         String defaultBrowserPackage = mSharedPreferences.getString(PREFERENCE_DEFAULT_BROWSER_PACKAGE_NAME, null);
-        String rightConsumeBubblePackageName = mSharedPreferences.getString(PREFERENCE_RIGHT_CONSUME_BUBBLE_PACKAGE_NAME, null);
+        //String rightConsumeBubblePackageName = mSharedPreferences.getString(PREFERENCE_RIGHT_CONSUME_BUBBLE_PACKAGE_NAME, null);
         String leftConsumeBubblePackageName = mSharedPreferences.getString(PREFERENCE_LEFT_CONSUME_BUBBLE_PACKAGE_NAME, null);
 
         if (fallbackDefaultBrowserPackageName != null) {
@@ -485,6 +516,10 @@ public class Settings {
             updateBrowsers();
         }
         return mBrowsers;
+    }
+
+    public void initiateBrowsersUpdate() {
+        mBrowsers = null;
     }
 
     public List<String> getBrowserPackageNames() {
@@ -719,12 +754,24 @@ public class Settings {
         return mSharedPreferences.getBoolean(PREFERENCE_INCOGNITO_MODE, false);
     }
 
+    public boolean isHideBubbles() {
+        return mSharedPreferences.getBoolean(PREFERENCE_HIDE_BUBBLES, true);
+    }
+
     public boolean isTrackingProtectionEnabled() {
-        return mSharedPreferences.getBoolean(PREFERENCE_TRACKINGPROTECTION_MODE, false);
+        return mSharedPreferences.getBoolean(PREFERENCE_TRACKINGPROTECTION_MODE, true);
     }
 
     public boolean isAdBlockEnabled() {
-        return mSharedPreferences.getBoolean(PREFERENCE_ADBLOCK_MODE, false);
+        return mSharedPreferences.getBoolean(PREFERENCE_ADBLOCK_MODE, true);
+    }
+
+    public boolean isBlock3PCookiesEnabled() {
+        return mSharedPreferences.getBoolean(PREFERENCE_BLOCK_3P_COOKIES, true);
+    }
+
+    public boolean isHttpsEverywhereEnabled() {
+        return mSharedPreferences.getBoolean(PREFERENCE_HTTPS_EVERYWHERE_MODE, false);
     }
 
     public void setWebViewBatterySaveMode(String mode) {
@@ -832,6 +879,7 @@ public class Settings {
 
     public boolean redirectUrlToBrowser(URL url) {
         String host = url.getHost();
+
         String hostAlt = host.contains("www.") ? host.replace("www.", "") : "www." + host;
         return mFallbackRedirectHosts.contains(host) || mFallbackRedirectHosts.contains(hostAlt);
 
@@ -915,12 +963,14 @@ public class Settings {
                     } else {
                         // And some special case code for me to ignore alternate builds
                         if (BuildConfig.DEBUG) {
-                            if (info.activityInfo.packageName.equals("com.linkbubble.playstore")) {
+                            if (info.activityInfo.packageName.equals("com.linkbubble.playstore")
+                                    || info.activityInfo.packageName.equals("com.brave.playstore")) {
                                 //Log.d("blerg", "ignore " + info.activityInfo.packageName);
                                 packageOk = false;
                             }
                         } else {
-                            if (info.activityInfo.packageName.equals("com.linkbubble.playstore.dev")) {
+                            if (info.activityInfo.packageName.equals("com.linkbubble.playstore.dev")
+                                    || info.activityInfo.packageName.equals("com.brave.playstore.dev")) {
                                 //Log.d("blerg", "ignore " + info.activityInfo.packageName);
                                 packageOk = false;
                             }

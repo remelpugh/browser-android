@@ -2,7 +2,7 @@
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
 
     <string name="download_activity_label">Nedladdare</string>
-    <string name="send_intent_label">Öpnna med Link Bubble</string>
+    <string name="send_intent_label">Öppna med Link Bubble</string>
     <string name="notification_summary">Tryck för att gömma alla öppna bubblor</string>
     <string name="notification_default_summary">Tryck för att dölja, expandera för att Stänga alla</string>
     <string name="notification_unhide_summary">Tryck för att Visa, expandera för att Stänga alla</string>
@@ -15,7 +15,7 @@
     <string name="cancel">Avbryt</string>
 
     <string name="action_ok">OK</string>
-    
+    <string name="action_open">Öppna</string>
     <string name="action_remove">Ta bort</string>
     <string name="action_cancel">Avbryt</string>
     <string name="action_clear_data">Rensa data</string>
@@ -24,15 +24,16 @@
     <string name="action_help">Hjälp</string>
     <string name="action_reload_page">Ladda om</string>
     <string name="action_open_in_browser">Öppna med %1$s</string>
-    
+    <string name="action_request_desktop_site">Begär webbsida för skrivbordet</string>
+    <string name="action_site_protection">Aktivera Link Bubble</string>
     <string name="action_open_in_new_bubble">Öppna i ny bubbla</string>
-    
-    
+    <string name="action_open_link_in_new_bubble">Öppna länk i en ny bubbla</string>
+    <string name="action_open_image_in_new_bubble">Öppna bild i en ny bubbla</string>
     <string name="action_copy_to_clipboard">Kopiera länk</string>
-    
+    <string name="action_save_image">Spara bild</string>
     <string name="action_share">Dela</string>
     <string name="action_close_all">Stäng alla</string>
-    
+    <string name="action_new_bubble">Ny bubbla</string>
     <string name="action_close_tab">Stäng bubbla</string>
     <string name="action_stop">Stoppa</string>
     <string name="action_undo">Ångra</string>
@@ -41,9 +42,9 @@
     <string name="share_via">Dela via...</string>
     <string name="not_set">Ej angivet</string>
 
-    
-    
-    
+    <string name="error_saving_image">Kunde inte spara bild.</string>
+    <string name="image_saved">Bild nedladdad.</string>
+    <string name="notice_download_started">Nedladdning startad.</string>
 
     <string name="warning">Varning!</string>
     <string name="untrusted_certificate">Certifikatet vid %1$s är inte betrott. Fortsätta ändå?</string>
@@ -86,20 +87,21 @@
     <string name="preference_default_apps_summary">Reservläsare, url-specifika appar</string>
     <string name="preference_default_apps_notice_summary">Används när en eller flera icke-webbläsarappar i ditt system kan hantera en 
 URL.\n\nTryck för att ta bort en standardapp.</string>
-    <string name="preference_default_apps_notice_no_defaults_summary">Används när en eller flera icke-webbläsarappar på din enhet kan hantera en URL,
-kan du konfigurera att standardappen ska ladda länken.\n\nStandardappen som ska användas i detta fall konfigureras när
+    <string name="preference_default_apps_notice_no_defaults_summary">Används när en eller flera icke-webbläsare på din enhet kan hantera en URL,
+kan du konfigurera att standardappen ska ladda länken.\n\n
+Standardappen som ska användas i detta fall konfigureras när
 du laddar länkar med Link Bubble.</string>
     <string name="preference_google_account_redirect_title">Google-konto omdirigering</string>
     <string name="preference_google_account_redirect_summary">Omdirigera accounts.google.com länkar till standard reservwebbläsare</string>
     <string name="preference_set_default_browser_title">Sätt standard systemwebbläsare</string>
-    <string name="preference_set_default_browser_summary">Link Bubble måste vara satt till förvald systemwebbläsare för att fungera. Tryck för att konfigurera.</string>
+    <string name="preference_set_default_browser_summary">Link Bubble måste vara inställt som standard webbläsare för att detta ska fungera. Tryck för att konfigurera.</string>
     <string name="preference_more">Mer...</string>
     <string name="preference_intercept_links_from_title">Fånga upp länkar från</string>
     <string name="preference_intercept_links_from_disabled_for_L">Från och med Android 5.0 har Google tagit bort API:et som krävs för denna funktion.</string>
     <string name="preference_scan_for_youtube_embeds_title">Kolla efter YouTube-inbäddningar</string>
     <string name="preference_scan_for_youtube_embeds_summary">Visa genväg för att ladda inbäddad video i YouTube-appen.</string>
     <string name="preference_webview_battery_save_title">Batterisparläge (Beta)</string>
-    <string name="preference_webview_battery_save_aggressive_title">Aggresivt</string>
+    <string name="preference_webview_battery_save_aggressive_title">Aggressivt</string>
     <string name="preference_webview_battery_save_aggressive_summary">Stoppa uppdateringen av hemsidan när Link Bubble är minimerat.\nSidor som laddas kommer att laddas färdigt innan de stoppas.</string>
     <string name="preference_webview_battery_save_default_title">Standard</string>
     <string name="preference_webview_battery_save_default_summary">Stoppa uppdateringen av hemsidor när skärmen är avstängd och återuppta när enheten låses upp.\nSidorna som håller på att läsas in laddas färdigt innan de stoppas.</string>
@@ -112,7 +114,7 @@ du laddar länkar med Link Bubble.</string>
     <string name="preference_theme_dark_no_color">Mörk + neutral färg</string>
     <string name="preference_theme_toolbar_title">Färg verktygsfält</string>
     <string name="preference_theme_toolbar_summary">För att matcha en webbsidas temafärg/markerad ikonfärg.</string>
-    
+    <string name="preference_article_mode_title">Läsläge</string>
     <string name="preference_reading_mode_on_wear_title">Läsläge på Wear</string>
     <string name="preference_article_mode_summary">Växla via knapp på actionbar</string>
     <string name="preference_webview_text_zoom_title">Textzoom</string>
@@ -127,13 +129,24 @@ du laddar länkar med Link Bubble.</string>
     <string name="preference_clear_passwords">Lösenord</string>
     <string name="preference_incognito_title">Inkognitoläge</string>
     <string name="preference_incognito_summary">Hindrar lagring av all historik och cookies</string>
+    <string name="preference_hide_bubbles_title">Dölj bubblor vid skrollning</string>
+    <string name="preference_hide_bubbles_summary">Dölj bubblor vid skrollning nedåt och visa bubblor vid skrollning uppåt</string>
     <string name="incognito_mode_changed_reloading_current">Inkognitoinställning ändrad. Laddar om nuvarande bubblor...</string>
+    <string name="preference_trackingprotection_summary">Hindra att resurser som spårar dig laddas</string>
+    <string name="preference_adblock_title">Annonsblockering</string>
+    <string name="preference_adblock_summary">Hindra att annonser laddas</string>
+    <string name="preference_block_3p_cookies_title">Blockera kakor från tredjepart</string>
+    <string name="preference_block_3p_cookies_summary">Stoppar vissa typer av spårning av annonsörer</string>
+    <string name="preference_trackingprotection_title">Skydd från spårning</string>
+    <string name="preference_adblock_tracking_protection_from_disabled">Den här funktionen är enbart tillgänglig i Android 5.0 eller högre.</string>
+    <string name="preference_https_everywhere_title">Använd HTTPS överallt</string>
+    <string name="preference_https_everywhere_summary">Öppna sidor med HTTPS istället för HTTP när det är möjligt</string>
     <string name="preference_user_agent_title">Användaragent</string>
     <string-array name="preference_user_agent_options">
         <item>Standard</item>
-        <item>Chrome Phone</item>
-        <item>Chrome Tablet</item>
-        <item>Chrome Desktop</item>
+        <item>Chrome Telefon</item>
+        <item>Chrome Tablett</item>
+        <item>Chrome Skrivbord</item>
     </string-array>
 
     <string name="preference_domains_title">Domän omdirigering</string>
@@ -148,18 +161,18 @@ du laddar länkar med Link Bubble.</string>
     <string name="preference_help_title">Hjälp</string>
     <string name="preference_show_welcome_message_title">Visa välkomstsida</string>
     <string name="preference_credits_title">Credits</string>
-    <string name="preference_osl_title">Open source-licenser</string>
+    <string name="preference_osl_title">Open Source-licenser</string>
     <string name="preference_privacy_policy_title">Sekretesspolicy</string>
     <string name="preference_terms_of_service_title">Användarvillkor</string>
     <string name="preference_say_thanks_title">Säg tack!</string>
-    <string name="preference_say_thanks_summary">Uppskattar du Link Bubble? Överväg gärna att lämna en Play Store-recension </string>
+    <string name="preference_say_thanks_summary">Uppskattar du Link Bubble? Lämna gärna en recension i Playbutiken.</string>
     <string name="preference_version_title">Version</string>
     <string name="preference_version_summary">Vad är nytt?</string>
     <string name="preference_more_title">Mer&#8230;</string>
     <string name="preference_show_undo_close_tab_title">Fråga om ångra stäng flik</string>
 
     <string name="preference_my_other_apps_title">Fler appar av Link Bubble</string>
-    <string name="preference_my_other_apps_summary">Gillar du Link Bubble? Varför inte kolla in våra andra appar?</string>
+    <string name="preference_my_other_apps_summary">Gillar du Link Bubble? Kolla in våra andra appar!</string>
 
     <string name="remove_default_title">Ta bort standard?</string>
     <string name="remove_default_message">Ta bort %1$s som standardapp för att ladda %2$s-länkar?\n\nNotera: du kan ange en ny standardapp
@@ -172,7 +185,7 @@ nästa gång du laddar en %2$s-länk </string>
     <string name="unsupported_drop_down_default_browser">Lyckades inte interagera detta objekt. Öppna länk i %1$s?</string>
     <string name="unsupported_drop_down_no_default_browser">Lyckades inte interagera detta objekt. Öppna länk i en webbläsare.</string>
 
-    <string name="consume_category_view">Se länk</string>
+    <string name="consume_category_view">Visa länk</string>
     <string name="consume_category_share">Skicka/dela länk</string>
 
     <string name="title_settings">Inställningar</string>
@@ -186,9 +199,10 @@ nästa gång du laddar en %2$s-länk </string>
 
     <string name="histroy_unread">Oläst</string>
     <string name="histroy_all">Allt</string>
+    <string name="new_bubble">Ny bubbla</string>
     <string name="history">Historik</string>
     <string name="erase_all_history_title">Radera allt?</string>
-    <string name="erase_all_history_message">Ta bort all din webbhistorik i Link Bubble?</string>
+    <string name="erase_all_history_message">Radera all din webbläsarhistorik?</string>
     <string name="empty">Tom</string>
     <string name="history_already_empty">Historiken redan rom</string>
     <string name="private_data_cleared">Privat data rensad</string>
@@ -222,72 +236,40 @@ nästa gång du laddar en %2$s-länk </string>
     <string name="faq_close_tab_question">Hur kan jag snabbt stänga en flik?</string>
     <string name="faq_close_tab_answer">Trycka på bakåtknappen är snabbast. Ett annat bra sätt är att dra ner en flik på stäng-knappen.</string>
     <string name="faq_back_button_minimize_question">Jag tycker att webbläsaren borde minimeras när man trycker på bakåtknappen!</string>
-    <string name="faq_back_button_minimize_answer"><![CDATA[Att minimera Link Bubble genom att trycka på bakåtknappen är inte genomförbart.
-Tänk dig följande situation:<br/>
-1). example.com/page1 laddas i första fliken.<br/>
-2). Du klickar på en länk på sidan ocn laddar example.com/page2 i samma flik.<br/>
-3). Nu vill du gå tillbaka till länken i steg 1.<br/><br/>
-Hur gör du detta om bakåtknappen minimerar Link Bubble? Trycka på den lilla bakåtindikatorn
-själva fliken är inte genomförbart.<br/><br/>
-Link Bubble är en webbläsare, och Android-webbläsare har sedan länge etablerat en standard att
-antingen gå tillbaka i URL-historiken, eller om historik saknas, stänga den nuvarande fliken när man trycker på bakåtknappen.
-Link Bubble följer denna standard.]]></string>
-    <string name="faq_app_internal_browser_question"><![CDATA[Link Bubble fångar inte upp länkar!]]></string>
-    <string name="faq_app_internal_browser_answer"><![CDATA[Det finns tre orsaker till detta:<br/>\n
-1). En annan webbläsare än Link Bubble är satt som systemets standardwebbläsare.
-Se \n\"Ange standardwebbläsare"-valet i Link Bubbles inställningar för att ändra detta.<br/>\n
-2). Gratisversionen av Link Bubble fångar endast upp länkar från en enda app.\n
-Se \"Fånga länkar från\"-valet i Link Bubbles inställningar för att se vilken app det är eller för att ändra den.
-Notera att genom att uppgradera till Link Bubble Pro kommer länkar att fångas upp från alla ickewebbläsarappar.<br/>\n
-3). Appar såsom Talon, Reddit is Fun och andra har inbyggda webbläsare som renderar länkar. Kontrollera appens inställningar
-och aktivera \"Extern webbläsare\" eller välj bort \"Intern webbläsare\" eller liknande.\n<br/><br/>Notera: andra webbläsare såsom Chrome är hårdkodade att ladda länkar i sig själva och därför kommer Link Bubble
-inte kunna öppna länkar från dessa.\n]]></string>
     
+    
+    
+    <string name="faq_article_mode_question">Hur använder jag Reading Mode? Varför fungerar inte vissa länkar?</string>
     
     <string name="faq_future_features_question">Kommer du lägga till stöd för bokmärken, favoriter, tillägg, etc.?</string>
-    <string name="faq_future_features_answer">Man ska aldrig säga aldrig, men för tillfället fokuserar Link Bubble helt på att vara det bästa möjliga sättet
-att ladda och konsumera länkar laddade från andra appar.</string>
     
+    <string name="faq_translations_question">Kan jag hjälpa till att översätta appen?</string>
     
     <string name="faq_roadmap_question">Publicerar du en funktionsfärdplan? Kan jag rösta upp kommande funktioner?</string>
     <string name="faq_roadmap_answer">Av konkurrensskäl är svaret på båda frågorna \'nej\' är jag rädd.<br/><br/></string>
-    <string name="faq_alternate_payment_answer"><![CDATA[Link Bubble har bara stöd för köp genom Google Play för tillfället.<br/><br/>Ytterligare
-betalningssätt kommer förhoppningsvis läggas till senare (förutsatt att de inte bryter mot Google Plays programpolicy för utvecklare).]]></string>
+    
     <string name="faq_cant_type_url_question">Varför kan jag inte skriva in namnet på den länk jag vill besöka?</string>
-    <string name="faq_cant_type_url_answer"><![CDATA[Detta är helt och hållet som avsett. Link Bubble är inte designad att vara en ersättare för din webbläsare, utan att istället användas 
-för att ladda och visa länkar från andra appar så elegant, hjälpsamt och snabbt som möjligt.<br/><br/>Om du vill ladda en ny url i Link Bubble 
-är ett bra sätt att söka efter sen sida via Google Now och ladda reslutatet med Link Bubble.<br/><br/>För att snabbt ladda dina faviroter 
-tycker att jag Chrome-bokmärken-widgeten fungerar väldigt bra.]]></string>
+    
     <string name="faq_copy_text_question">Varför kan jag inte kopiera text från en webbsida?</string>
-    <string name="faq_copy_text_answer"><![CDATA[Tyvärr hindrar systembegränsningar i Android detta från att fungera.<br/><br/>Tekniskt svar:
-Androids WebView har bara kopieringsfunktionalitet från en aktivitet men inte från en service (vilket Link Bubble använder).]]></string>
+    
     <string name="faq_translucent_status_bar_question">Varför ritar inte appen över det genomskinliga statusfältet?</string>
     <string name="faq_translucent_status_bar_answer">Tyvärr förhindrar systembegränsningar i Android detta.</string>
     <string name="faq_beta_programme_question">Finns det något betaprogram? Hur kan jag gå med i det?</string>
     
-    <string name="faq_low_spec_performance_question">Varför går Link Bubble så långsamt på min Nexus S / Galaxy S1 / Moto G-typ av enhet?</string>
-    <string name="faq_low_spec_performance_answer"><![CDATA[Link Bubble är en väldigt resurskrävande app och därmed kan enheter med lägre specifikationer 
-kämpa för att köra appen lika bra som mer kraftfulla enheter. Framtida uppdateringar kommer försöka förbättra Link Bubbles
-prestanda, men realistiskt sett finns det inte så mycket som kan göras här.<br/><br/>Tekniskt svar: Som minst kräver Link Bubble användandet
-av en tjänst och en WebView för att fungera. Ofta är multipla WebViews och även multipla aktiviteter närvarande.
-Naturligtvis används <i>mycket</i> minne/resurser för att allokera dessa (speciellt WebViews). Enheter med lägre specifikationer har vanligtvis
-mindre minne tillgängligt än Link Bubble kräver och därmed blir prestandan lidande eftersom garbage collections tiggas frekvent.
-Till exempel, max heap size på Nexus S är 48MB, jämfört med 192MB på Nexus 5.]]></string>
+    
+    
     <string name="faq_crap_webview_question">Ibland visas inte webbsidor på rätt sätt eller videor spelas inte.</string>
-    <string name="faq_crap_webview_answer"><![CDATA[LinkBubble använder vanliga Android WebView, men tyvärr är de otillförlitliga ibland.
-Alternativa webbrenderingsmetoder såsom FireFox GeckoView och Chromium kommer sannlikt undersökas 
-framöver.<br/><br/>Om en webbsida inte visas korrekt i Link Bubble är det enklast att ladda länken i en traditionell webbläsare istället.]]></string>
+    
     <string name="faq_ongoing_notificaion_question">Varför visas alltid pågåendenotifierinen när Link Bubble körs?</string>
-    <string name="faq_ongoing_notificaion_answer"><![CDATA[Tyvärr behövs den här pågåendenotifieringen för att uppmuntra Android-operativet att inte avsluta
-Link Bubble.]]></string>
+    
     <string name="faq_next_update_eta_question">När kommer nästa uppdatering?</string>
     <string name="faq_next_update_eta_answer"><![CDATA[När den är färdig!<br/><br/>Det är tyvärr inte möjligt att vara mer specifik än så
 (även för att ge en ungefärlig uppskattning).<br/><br/>Verkligheten är sådan att om man ger uppskattningar är det lätt hänt
 att folk tar det som ett åtagande och blir upprörda när det dröjer av någon anledning.]]></string>
-    <string name="faq_close_quickly_question">Hur kan jag snabbt stoppa Link Bubble från att köras?</string>
-    <string name="faq_close_quickly_answer">Svep från toppen av skärmen för att öppna notifieringsfältet och klicka på \"Link Bubble\"-notifieringen.</string>
-    <string name="faq_change_default_browser_question">Hur kan jag ta bort Link Bubble som standardwebbläsare?</string>
-    <string name="faq_change_default_browser_answer">Systeminställningar -> Appar -> Hämtade -> Link Bubble -> Rensa standardinställningar</string>
+    
+    
+    
+    
     <string name="faq_report_bug_question">Rapportera en bug</string>
     <string name="faq_report_bug_answer"><![CDATA[epost]]></string>
 
@@ -300,21 +282,21 @@ att folk tar det som ett åtagande och blir upprörda när det dröjer av någon
     <string name="activity_resolver_use_always">Alltid</string>
     <string name="activity_resolver_use_once">Bara en gång</string>
 
-    
-    
+    <string name="credits_title">Link Bubble Credits</string>
+    <string name="credits_name">Link Bubble</string>
     <string name="credits_credit">Koncept, design och programmering</string>
-    
+    <string name="credits_app_copyright">Copyright 2015, Link Bubble.</string>
 
     
     <plurals name="restore_tabs_from_previous_session">
-        <item quantity="one">Restore tab from previous session?</item>
-        <item quantity="other">Restore %d tabs from previous session?</item>
+        <item quantity="one">Återställ flik från föregående session?</item>
+        <item quantity="other">Återställa %d flikar från föregående session?</item>
     </plurals>
 
     <string name="content_description_button">Knapp</string>
     <string name="content_description_target_icon">Bubbelmålikon</string>
     <string name="content_description_close_bubble_icon">Stäng bubbelikon</string>
-    <string name="content_description_link_bubble_logo">Link Bubble-logga</string>
+    
     <string name="content_description_app_icon">Appikon</string>
     <string name="content_description_youtube_video_thumbnail">YouTube videominiatyr</string>
     <string name="content_description_history">Historik</string>
@@ -323,15 +305,8 @@ att folk tar det som ett åtagande och blir upprörda när det dröjer av någon
 
     <string name="requesting_location_message">%1$s begär din plats. Tillåt?</string>
 
-    <string name="accept_terms_and_privacy"><![CDATA[Genom att fortsätta bekräftar du att du accepterar Link Bubbles 
-<a href="http://www.linkbubble.com/terms">villkor</a> och <a href="http://www.linkbubble.com/privacy">integritetspolicy</a>.]]></string>
+    
 
-    <string name="service_name">Link Bubble Renderer</string>
-    <string name="notification_title">Link Bubble</string>
-
-    
-    
-    
     
     
 
@@ -340,6 +315,12 @@ att folk tar det som ett åtagande och blir upprörda när det dröjer av någon
     
     
     
+
+    
+    
+    
+    
+    
     
     
     
@@ -352,6 +333,15 @@ att folk tar det som ett åtagande och blir upprörda när det dröjer av någon
 
     
 
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
     
     

@@ -13,6 +13,7 @@ import android.graphics.Bitmap;
 import android.net.ConnectivityManager;
 import android.net.http.SslError;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -24,6 +25,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
+import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JsPromptResult;
@@ -47,6 +49,7 @@ import com.linkbubble.Settings;
 import com.linkbubble.articlerender.ArticleContent;
 import com.linkbubble.ui.TabView;
 import com.linkbubble.util.Analytics;
+import com.linkbubble.util.CrashTracking;
 import com.linkbubble.util.NetworkConnectivity;
 import com.linkbubble.util.NetworkReceiver;
 import com.linkbubble.util.PageInspector;
@@ -54,6 +57,9 @@ import com.linkbubble.util.Util;
 import com.linkbubble.util.YouTubeEmbedHelper;
 import com.squareup.otto.Subscribe;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Map;
@@ -63,7 +69,7 @@ class WebViewRenderer extends WebRenderer {
 
     protected String TAG;
     private Handler mHandler;
-    protected WebView mWebView;
+    protected CustomWebView mWebView;
     private View mTouchInterceptorView;
     private long mLastWebViewTouchUpTime = -1;
     private String mLastWebViewTouchDownUrl;
@@ -80,6 +86,7 @@ class WebViewRenderer extends WebRenderer {
     private boolean mRegisteredForBus;
     private boolean mTrackingProtectionEnabled = false;
     private boolean mAdblockEnabled = false;
+    private boolean mHttpsEverywhereEnabled = false;
 
     private ArticleContent.BuildContentTask mBuildArticleContentTask;
     private ArticleContent mArticleContent;
@@ -92,7 +99,7 @@ class WebViewRenderer extends WebRenderer {
         mHandler = new Handler();
         TAG = tag;
 
-        mWebView = new WebView(mContext);
+        mWebView = new CustomWebView(mContext);
         mWebView.setLayoutParams(webRendererPlaceholder.getLayoutParams());
         Util.replaceViewAtPosition(webRendererPlaceholder, mWebView);
 
@@ -111,6 +118,7 @@ class WebViewRenderer extends WebRenderer {
         mWebView.setDownloadListener(mDownloadListener);
         mWebView.setOnLongClickListener(mOnWebViewLongClickListener);
         mWebView.setOnKeyListener(mOnKeyListener);
+        mWebView.setOnScrollChangedCallback(mOnScrollChangedCallback);
 
         WebSettings webSettings = mWebView.getSettings();
         webSettings.setJavaScriptEnabled(true);
@@ -145,7 +153,22 @@ class WebViewRenderer extends WebRenderer {
         }
         cancelBuildArticleContentTask();
         mIsDestroyed = true;
-        mWebView.destroy();
+        try {
+            // The exception sometimes here is possible related to how we create our WebView. We use an application context,
+            // but seems like should use an activity. That is the possible fix for the crash. It should gone when we have WebView
+            // inside an Activity
+            mWebView.stopLoading();
+            mWebView.removeAllViews();
+            mWebView.clearCache(true);
+            mWebView.destroyDrawingCache();
+            mWebView.destroy();
+        }
+        catch (IllegalArgumentException exc) {
+            exc.printStackTrace();
+        }
+        catch (Exception exc) {
+            exc.printStackTrace();
+        }
         Log.d("Article", "WebViewRenderer.destroy()");
     }
 
@@ -191,7 +214,9 @@ class WebViewRenderer extends WebRenderer {
     @Override
     public void setUserAgentString(String userAgentString) {
         WebSettings webSettings = mWebView.getSettings();
-        webSettings.setUserAgentString(userAgentString);
+        if (null != webSettings) {
+            webSettings.setUserAgentString(userAgentString);
+        }
     }
 
     @Override
@@ -202,6 +227,8 @@ class WebViewRenderer extends WebRenderer {
         }
         mTrackingProtectionEnabled = Settings.get().isTrackingProtectionEnabled();
         mAdblockEnabled = Settings.get().isAdBlockEnabled();
+        mHttpsEverywhereEnabled = Settings.get().isHttpsEverywhereEnabled();
+        refresh3PCookieSetting();
 
         String urlAsString = url.toString();
         Log.d(TAG, "loadUrl() - " + urlAsString);
@@ -228,6 +255,12 @@ class WebViewRenderer extends WebRenderer {
         }
     }
 
+    private void refresh3PCookieSetting() {
+        if ( Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            CookieManager.getInstance().setAcceptThirdPartyCookies(mWebView, !Settings.get().isBlock3PCookiesEnabled());
+        }
+    }
+
     @Override
     public void reload() {
         switch (mMode) {
@@ -239,6 +272,8 @@ class WebViewRenderer extends WebRenderer {
                 // In case the user changes adblock / TP settings and reloads the current bubble
                 mTrackingProtectionEnabled = Settings.get().isTrackingProtectionEnabled();
                 mAdblockEnabled = Settings.get().isAdBlockEnabled();
+                mHttpsEverywhereEnabled = Settings.get().isHttpsEverywhereEnabled();
+                refresh3PCookieSetting();
                 mWebView.reload();
                 break;
         }
@@ -249,11 +284,16 @@ class WebViewRenderer extends WebRenderer {
         cancelBuildArticleContentTask();
         mArticleContent = null;
 
-        if (null != mWebView) {
-            mWebView.stopLoading();
+        try {
+            if (null != mWebView) {
+                mWebView.stopLoading();
 
-            // Ensure the loading indicators cease when stop is pressed.
-            mWebChromeClient.onProgressChanged(mWebView, 100);
+                // Ensure the loading indicators cease when stop is pressed.
+                mWebChromeClient.onProgressChanged(mWebView, 100);
+            }
+        }
+        catch (NullPointerException exc) {
+            CrashTracking.logHandledException(exc);
         }
     }
 
@@ -383,6 +423,18 @@ class WebViewRenderer extends WebRenderer {
         }
     };
 
+    CustomWebView.OnScrollChangedCallback mOnScrollChangedCallback = new CustomWebView.OnScrollChangedCallback() {
+        @Override
+        public void onScroll(int newY, int oldY) {
+            if (!mWebView.mInterceptScrollChangeCalls && 0 == newY) {
+                mController.resetBubblePanelAdjustment();
+            }
+            else {
+                mController.adjustBubblesPanel(newY, oldY, false);
+            }
+        }
+    };
+
     private View.OnTouchListener mWebViewOnTouchListener = new View.OnTouchListener() {
         @Override
         public boolean onTouch(View v, MotionEvent event) {
@@ -390,12 +442,15 @@ class WebViewRenderer extends WebRenderer {
             switch (action) {
                 case MotionEvent.ACTION_DOWN:
                     mLastWebViewTouchDownUrl = mUrl.toString();
+                    mWebView.mInterceptScrollChangeCalls = true;
                     //Log.d(TAG, "[urlstack] WebView - MotionEvent.ACTION_DOWN");
                     break;
 
                 case MotionEvent.ACTION_UP:
                     mLastWebViewTouchUpTime = System.currentTimeMillis();
+                    mWebView.mInterceptScrollChangeCalls = false;
                     //Log.d(TAG, "[urlstack] WebView - MotionEvent.ACTION_UP");
+                    mController.adjustBubblesPanel(0, 0, true);
                     break;
             }
             // Forcibly pass along to the WebView. This ensures we receive the ACTION_UP event above.
@@ -405,6 +460,37 @@ class WebViewRenderer extends WebRenderer {
     };
 
     WebViewClient mWebViewClient = new WebViewClient() {
+        @Override
+        public void doUpdateVisitedHistory (WebView view, String url, boolean isReload) {
+            WebView.HitTestResult hitResult = null;
+            if (null != mWebView) {
+                hitResult = mWebView.getHitTestResult();
+            }
+            String extraRes = null;
+            if (null != mWebView && null != hitResult) {
+                extraRes = hitResult.getExtra();
+                if (null != extraRes) {
+                    try {
+                        URL extraURL = new URL(extraRes);
+                        extraRes = extraRes.substring(extraURL.getProtocol().length() + ("://").length());
+                    } catch (MalformedURLException exc) {
+                        exc.printStackTrace();
+                    }
+                }
+            }
+            int webViewHitResultType = WebView.HitTestResult.UNKNOWN_TYPE;
+            if (null != hitResult) {
+                webViewHitResultType = hitResult.getType();
+            }
+            if (null == extraRes
+                    || WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE == webViewHitResultType
+                    || (null != extraRes && url.endsWith(extraRes))) {
+                mController.doUpdateVisitedHistory(url, isReload,
+                        WebView.HitTestResult.UNKNOWN_TYPE == webViewHitResultType
+                        || WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE == webViewHitResultType);
+            }
+        }
+
         @Override
         public boolean shouldOverrideUrlLoading(WebView wView, final String urlAsString) {
             boolean viaInput = false;
@@ -431,7 +517,7 @@ class WebViewRenderer extends WebRenderer {
 
             // Quickly check to see if no checks are needed because ad blocking and tracking
             // protection are not enabled.
-            if (!mTrackingProtectionEnabled && !mAdblockEnabled) {
+            if (!mTrackingProtectionEnabled && !mAdblockEnabled && !mHttpsEverywhereEnabled) {
                 return allowRequest;
             }
 
@@ -439,15 +525,6 @@ class WebViewRenderer extends WebRenderer {
             try {
                 host = new URL(urlStr).getHost();
             } catch (Exception e) {
-                return allowRequest;
-            }
-
-            // Never block for hosts which are not third party to the baseHost
-            if (host.length() == mHost.length() && host.equalsIgnoreCase(mHost)) {
-                return null;
-            } else if(host.length() > mHost.length() &&
-                    host.charAt(host.length() - mHost.length() - 1) == '.' &&
-                    host.substring(host.length() - mHost.length()).equalsIgnoreCase(mHost)) {
                 return allowRequest;
             }
 
@@ -465,17 +542,50 @@ class WebViewRenderer extends WebRenderer {
                 }
             }
 
-            return allowRequest;
+            return HttpsEverywhereResponse(urlStr);
         }
 
+        private WebResourceResponse HttpsEverywhereResponse(String urlStr) {
+            if (!mHttpsEverywhereEnabled) {
+                return null;
+            }
+
+            String newUrl = mController.getHTTPSUrl(urlStr);
+            if (!newUrl.equals(urlStr)) {
+                try {
+                    URL url = new URL(newUrl);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+                    String mimeType = conn.getContentType();
+                    String encoding = conn.getContentEncoding();
+
+                    InputStream is = conn.getInputStream();
+
+                    return new WebResourceResponse(mimeType, encoding, is);
+                }
+                catch (MalformedURLException e) {
+                    e.printStackTrace();
+                }
+                catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            return null;
+        }
 
         @Override
         public WebResourceResponse shouldInterceptRequest (WebView view, String urlStr) {
             // That call is for the API level is lower then 21
 
+            // We do not change or block the top URL
+            if (mUrl.toString().equals(urlStr)) {
+                return null;
+            }
+
             // Just return as is for now, we will have a solution for older devices later.
             // The blocking by file extension not being reliable enough for now.
-            return null;
+            return HttpsEverywhereResponse(urlStr);
 
             // Quickly check to see if no checks are needed because ad blocking and tracking
             // protection are not enabled.
@@ -538,9 +648,11 @@ class WebViewRenderer extends WebRenderer {
         public WebResourceResponse shouldInterceptRequest (WebView view, WebResourceRequest resourceRequest) {
             // That call is for the API level is higher or equal to 21
 
+            String currentUrl = resourceRequest.getUrl().toString();
             // Quickly check to see if no checks are needed because ad blocking and tracking
             // protection are not enabled.
-            if (!mTrackingProtectionEnabled && !mAdblockEnabled) {
+            if (!mTrackingProtectionEnabled && !mAdblockEnabled && !mHttpsEverywhereEnabled ||
+                    mUrl.toString().equals(currentUrl)) {
                 return null;
             }
 
@@ -563,7 +675,7 @@ class WebViewRenderer extends WebRenderer {
                 }
             }
 
-            return interceptTheCall(view, resourceRequest.getUrl().toString(), filterOption, true);
+            return interceptTheCall(view, currentUrl, filterOption, true);
         }
 
         @Override
@@ -881,11 +993,9 @@ class WebViewRenderer extends WebRenderer {
 
     @Override
     public void resumeOnSetActive() {
-        switch (Settings.get().getWebViewBatterySaveMode()) {
-            case Aggressive:
-                webviewResume("setActive");
-                break;
-        }
+        // Nothing happens if we call resume on resumed WebView but
+        // we should resume if we had Aggressive mode before and paused it and set it to Default or Off in Settings
+        webviewResume("setActive");
     }
 
     @Override

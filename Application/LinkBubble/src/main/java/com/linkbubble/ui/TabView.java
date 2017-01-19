@@ -5,12 +5,25 @@
 package com.linkbubble.ui;
 
 
+import android.animation.Animator;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.animation.AccelerateDecelerateInterpolator;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.Animation;
+import android.view.animation.AnticipateOvershootInterpolator;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
+import android.view.animation.Transformation;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 import com.linkbubble.Constant;
@@ -30,6 +43,11 @@ public class TabView extends BubbleView {
     private ContentView mContentView;
     private ImageView mBackIndicatorView;
     private ScaleUpAnimHelper mBackIndicatorAnimHelper;
+    private boolean mPerformEmptyClick;
+    private int mOriginalParamsTopMargin;
+    private FrameLayout.LayoutParams mOriginalParams;
+    private float mOriginalLocationY;
+    private int mOriginalBottomMargin;
 
     public boolean mWasRestored;
     public boolean mIsClosing;
@@ -46,9 +64,10 @@ public class TabView extends BubbleView {
         super(context, attrs, defStyle);
     }
 
-    void configure(String url, long urlLoadStartTime, boolean hasShownAppPicker) throws MalformedURLException {
+    void configure(String url, long urlLoadStartTime, boolean hasShownAppPicker, boolean performEmptyClick) throws MalformedURLException {
         super.configure(url);
 
+        mPerformEmptyClick = performEmptyClick;
         mBackIndicatorView = (ImageView) findViewById(R.id.back_indicator);
         if (Settings.get().getDarkThemeEnabled()) {
             mBackIndicatorView.setBackgroundResource(R.drawable.badge_plate_dark);
@@ -117,10 +136,10 @@ public class TabView extends BubbleView {
 
             @Override
             public boolean hasHighQualityFavicon() {
-                String tag = (String)mFavicon.getTag();
+                String tag = (String) mFavicon.getTag();
                 Drawable drawable = mFavicon.getDrawable();
                 if (tag != null && drawable != null && drawable instanceof BitmapDrawable) {
-                    Bitmap bitmap = ((BitmapDrawable)drawable).getBitmap();
+                    Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
                     if (bitmap != null && bitmap.getWidth() >= Constant.DESIRED_FAVICON_SIZE) {
                         return true;
                     }
@@ -170,6 +189,63 @@ public class TabView extends BubbleView {
         }
     }
 
+    public int toolbarHeight() {
+        if (null != mContentView) {
+            return mContentView.toolbarHeight();
+        }
+
+        return 0;
+    }
+
+    public boolean adjustBubblesPanel(float adjustOn, boolean heightSizeTopMargin, int animDuration) {
+        if (null == mOriginalParams) {
+            mOriginalParams = (FrameLayout.LayoutParams)mContentView.getLayoutParams();
+            if (null == mOriginalParams) {
+                return false;
+            }
+            mOriginalBottomMargin = mOriginalParams.bottomMargin;
+        }
+        if (heightSizeTopMargin) {
+            FrameLayout.LayoutParams currentParams = (FrameLayout.LayoutParams)mContentView.getLayoutParams();
+            if (null == currentParams) {
+                return false;
+            }
+            float locationYToMove = 0 - currentParams.height - currentParams.topMargin - mContentView.toolbarHeight();
+            currentParams.bottomMargin = mOriginalBottomMargin + (int)locationYToMove;
+            mContentView.setLayoutParams(currentParams);
+        }
+
+        ObjectAnimator
+                .ofFloat(mContentView, "translationY", adjustOn)
+                .setDuration(animDuration)
+                .start();
+
+        return true;
+    }
+
+    // Empty listener is set so that the mHideListener is not still used, potentially setting the view visibilty as GONE
+    /*private Animator.AnimatorListener mShowListener = new Animator.AnimatorListener() {
+        @Override
+        public void onAnimationStart(Animator animation) {
+             mContentView.setVisibility(View.VISIBLE);
+        }
+
+        @Override
+        public void onAnimationEnd(Animator animation) {
+            mContentView.setVisibility(View.GONE);
+        }
+
+        @Override
+        public void onAnimationCancel(Animator animation) {
+
+        }
+
+        @Override
+        public void onAnimationRepeat(Animator animation) {
+
+        }
+    };*/
+
     @Override
     protected void onPageLoaded(boolean withError) {
         super.onPageLoaded(withError);
@@ -178,7 +254,12 @@ public class TabView extends BubbleView {
         }
 
         if (mUrl.toString().equals(getContext().getString(R.string.empty_bubble_page))) {
-            performClick();
+            if (mPerformEmptyClick) {
+                performClick();
+            }
+            else {
+                mPerformEmptyClick = true;
+            }
         }
     }
 

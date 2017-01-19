@@ -43,6 +43,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
+import android.webkit.CookieManager;
 import android.webkit.WebView;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -64,14 +65,17 @@ import com.linkbubble.MainController;
 import com.linkbubble.R;
 import com.linkbubble.Settings;
 import com.linkbubble.adblock.TPFilterParser;
+import com.linkbubble.adblock.WhiteListCollector;
 import com.linkbubble.adinsert.AdInserter;
 import com.linkbubble.articlerender.ArticleContent;
 import com.linkbubble.articlerender.ArticleRenderer;
+import com.linkbubble.httpseverywhere.HttpsEverywhere;
 import com.linkbubble.util.ActionItem;
 import com.linkbubble.util.Analytics;
 import com.linkbubble.util.CrashTracking;
 import com.linkbubble.util.DownloadImage;
 import com.linkbubble.util.Util;
+import com.linkbubble.webrender.CustomWebView;
 import com.linkbubble.webrender.WebRenderer;
 import com.linkbubble.adblock.ABPFilterParser;
 
@@ -86,10 +90,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Stack;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ContentView extends FrameLayout {
 
     private static final String TAG = "UrlLoad";
+    private static final Integer BLACK_LIST_MAX_REDIRECT_COUNT = 5;
+    private static final int DEFAULT_TOOLBAR_SIZE = 112;
 
     private static int sNextArticleNotificationId = 1111;
 
@@ -125,6 +132,9 @@ public class ContentView extends FrameLayout {
     // Search URL functionality
     private AutoCompleteTextView metUrl;
     private ImageButton mbtUrlClear;
+    private FrameLayout mContentEditUrl;
+    private String mPreviousMetUrl;
+    private String mPreviousAppendedString;
 
     private boolean mPageFinishedLoading;
     private LifeState mLifeState = LifeState.Init;
@@ -154,6 +164,9 @@ public class ContentView extends FrameLayout {
     private boolean mApplyAutoSuggestionToUrlString = true;
     private boolean mSetTheRealUrlString = true;
     private boolean mFirstTimeUrlTyped = true;
+    private boolean mHostInWhiteList = false;
+
+    ConcurrentHashMap<String, Integer> mHostRedirectCounter;
 
     // Tracking protection third party hosts
     String[] mThirdPartyHosts = null;
@@ -290,7 +303,7 @@ public class ContentView extends FrameLayout {
 
                 // L_WATCH: L currently lacks getRecentTasks(), so minimize here
                 if (isCopyToClipboardAction == false && Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-                    MainController.get().switchToBubbleView();
+                    MainController.get().switchToBubbleView(false);
                 }
 
                 //if (closeBubbleOnShare && isCopyToClipboardAction == false && MainController.get() != null) {
@@ -319,10 +332,65 @@ public class ContentView extends FrameLayout {
         return d;
     }
 
+    private void HostInWhiteListCheck(String url) {
+        MainApplication app = (MainApplication) mContext.getApplicationContext();
+
+        WhiteListCollector whiteListCollector = app.getWhiteListCollector();
+        if (null == whiteListCollector) {
+            mHostInWhiteList = false;
+
+            return;
+        }
+
+        String host = "";
+        try {
+            host = new URL(url).getHost();
+        }
+        catch (MalformedURLException exc) {
+        }
+
+        mHostInWhiteList = whiteListCollector.isInWhiteList(host);
+    }
+
+    private void AddRemoveHostFromWhiteList(String url, boolean add) {
+        MainApplication app = (MainApplication) mContext.getApplicationContext();
+
+        WhiteListCollector whiteListCollector = app.getWhiteListCollector();
+        if (null == whiteListCollector) {
+            mHostInWhiteList = false;
+
+            return;
+        }
+
+        String host = "";
+        try {
+            host = new URL(url).getHost();
+        }
+        catch (MalformedURLException exc) {
+        }
+
+        if (add) {
+            whiteListCollector.addHostToWhiteList(host);
+        }
+        else {
+            whiteListCollector.removeHostFromWhiteList(host);
+        }
+    }
+
+    public int toolbarHeight() {
+        FrameLayout.LayoutParams currentUrlBarParams = (FrameLayout.LayoutParams)mContentEditUrl.getLayoutParams();
+        FrameLayout.LayoutParams currentShadowParams = (FrameLayout.LayoutParams)findViewById(R.id.actionbar_shadow).getLayoutParams();
+        if (null != currentUrlBarParams && null != currentShadowParams) {
+            return currentUrlBarParams.height + currentShadowParams.height;
+        }
+
+        return DEFAULT_TOOLBAR_SIZE;
+    }
     // The function configures the urlBar
     private void configureUrlBar(String urlAsString) {
         // Set the current URL to the search URL
         metUrl = (AutoCompleteTextView) findViewById(R.id.autocomplete_top500websites);
+        mContentEditUrl = (FrameLayout)findViewById(R.id.content_edit_url);
 
         metUrl.setDropDownWidth(getResources().getDisplayMetrics().widthPixels);
         metUrl.setText(urlAsString);
@@ -346,22 +414,33 @@ public class ContentView extends FrameLayout {
     }
 
     void setTabAsActive () {
-        if (mUrlTextView.getText().toString().equals(getContext().getString(R.string.empty_bubble_page))) {
-            mTitleTextView.performClick();
+        try {
+            if (mUrlTextView.getText().toString().equals(getContext().getString(R.string.empty_bubble_page))) {
+                mTitleTextView.performClick();
+            } else {
+                View view = mWebRenderer.getView();
+                if (null != view) {
+                    view.requestFocus();
+                }
+            }
         }
-        else {
-            mWebRenderer.getView().requestFocus();
+        catch (NullPointerException exc) {
+            // We have that exception sometimes inside Android SDK on requestFocus,
+            // we would better to not get focus than crash
         }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     void configure(String urlAsString, TabView ownerTabView, long urlLoadStartTime, boolean hasShownAppPicker, EventHandler eventHandler) throws MalformedURLException {
+        mHostRedirectCounter = new ConcurrentHashMap<String, Integer>();
         mLifeState = LifeState.Alive;
         mTintableDrawables.clear();
 
+
+        HostInWhiteListCheck(urlAsString);
         View webRendererPlaceholder = findViewById(R.id.web_renderer_placeholder);
         mWebRenderer = WebRenderer.create(WebRenderer.Type.WebView, getContext(), mWebRendererController, webRendererPlaceholder, TAG);
-        mWebRenderer.setUrl(urlAsString);
+        mWebRenderer.setUrl(mWebRendererController.getHTTPSUrl(urlAsString));
 
         // Generates 1000 history links
         /*for (int i = 0; i < 1000; i++) {
@@ -466,7 +545,7 @@ public class ContentView extends FrameLayout {
         } else if (SearchURLSuggestions.SearchEngine.DUCKDUCKGO == selectedSearchEngine) {
             // Make the search using duck duck go
             try {
-                String strQuery = getContext().getString(R.string.duck_duck_search_engine) + URLEncoder.encode(strUrl, "UTF-8");
+                String strQuery = String.format(getContext().getString(R.string.duckduckgo_search_engine), URLEncoder.encode(strUrl, "UTF-8"));
                 LoadWebPage(strQuery);
             } catch (IOException ioe) {
                 Log.e(TAG, ioe.getMessage(), ioe);
@@ -505,6 +584,7 @@ public class ContentView extends FrameLayout {
 
     private void LoadWebPage(String strUrl) {
         updateAndLoadUrl(strUrl);
+        mWebRendererController.resetBubblePanelAdjustment();
     }
 
 
@@ -534,6 +614,9 @@ public class ContentView extends FrameLayout {
         mToolbarLayout.setBackgroundColor(bgColor);
         mTitleTextView.setTextColor(textColor);
         mUrlTextView.setTextColor(textColor);
+        metUrl.setBackgroundColor(bgColor);
+        metUrl.setTextColor(textColor);
+        mContentEditUrl.setBackgroundColor(bgColor);
 
         for (Drawable d : mTintableDrawables) {
             DrawableCompat.setTint(d, textColor);
@@ -548,56 +631,101 @@ public class ContentView extends FrameLayout {
     WebRenderer.Controller mWebRendererController = new WebRenderer.Controller() {
 
         @Override
-        public boolean shouldAdBlockUrl(String baseHost, String urlStr, String filterOption) {
+        public void resetBubblePanelAdjustment() {
+            MainController mainController = MainController.get();
+            if (null != mainController) {
+                mainController.adjustBubblesPanel(0, 0, false, true);
+            }
+        }
+
+        @Override
+        public void adjustBubblesPanel(int newY, int oldY, boolean afterTouchAdjust) {
+            MainController mainController = MainController.get();
+            if (null != mainController) {
+                mainController.adjustBubblesPanel(newY, oldY, afterTouchAdjust, false);
+            }
+        }
+
+        @Override
+        public String getHTTPSUrl(String originalUrl) {
+            if (mHostInWhiteList || !Settings.get().isHttpsEverywhereEnabled()) {
+                return originalUrl;
+            }
             MainApplication app = (MainApplication) mContext.getApplicationContext();
-            ABPFilterParser parser = null;
-            int count = 0;
-            for (;;) {
-                if (count >= 1000) {  // It is about 50 seconds, we just return false;
-                    return false;
-                }
-                parser = app.getABPParser();
-                if (null == parser) {
-                    try {
-                        Thread.sleep(50);
-                    }
-                    catch (InterruptedException e) {
-                    }
-                }
-                else {
-                    break;
-                }
-                count++;
+            HttpsEverywhere httpsEverywhere = app.getHttpsEverywhere();
+            if (null == httpsEverywhere) {
+                return originalUrl;
             }
 
-            return parser.shouldBlock(baseHost, urlStr, filterOption);
+
+            Integer redirectedCount = 0;
+            String urlToBlackList = "";
+            try {
+                urlToBlackList = new URL(originalUrl).getHost();
+            }
+            catch (MalformedURLException exc) {
+                urlToBlackList = originalUrl;
+            }
+            if (null != mHostRedirectCounter && null != originalUrl && !originalUrl.startsWith("https")) {
+                if (urlToBlackList.startsWith("http://m.")) {
+                    urlToBlackList = "http://" + urlToBlackList.substring("http://m.".length());
+                }
+                redirectedCount = mHostRedirectCounter.get(urlToBlackList);
+                if (null == redirectedCount) {
+                    redirectedCount = 0;
+                }
+                if (redirectedCount >= BLACK_LIST_MAX_REDIRECT_COUNT) {
+                    return originalUrl;
+                }
+            }
+            String realUrl = httpsEverywhere.getRealUrl(originalUrl);
+            if (!realUrl.equals(originalUrl)) {
+                redirectedCount++;
+                if (null != mHostRedirectCounter) {
+                    mHostRedirectCounter.put(urlToBlackList, redirectedCount);
+                }
+            }
+
+            return realUrl;
+        }
+
+        @Override
+        public boolean shouldAdBlockUrl(String baseHost, String urlStr, String filterOption) {
+            if (mHostInWhiteList) {
+                return false;
+            }
+
+            if (null != mWebRenderer) {
+                URL currentUrl = mWebRenderer.getUrl();
+                if (currentUrl.toString().equals(urlStr)) {
+                    return false;
+                }
+            }
+
+            MainApplication app = (MainApplication) mContext.getApplicationContext();
+            ABPFilterParser parser = app.getABPParser();
+            if (null == parser) {
+                return false;
+            }
+
+            return parser.shouldBlockJava(baseHost, urlStr, filterOption);
         }
 
         @Override
         public boolean shouldTrackingProtectionBlockUrl(String baseHost, String host) {
-            MainApplication app = (MainApplication) mContext.getApplicationContext();
-            TPFilterParser tpList = null;
-            int count = 0;
-            for (;;) {
-                if (count >= 1000) {  // It is about 50 seconds, we just return false;
-                    return false;
-                }
-                tpList = app.getTrackingProtectionList();
-                if (null == tpList) {
-                    try {
-                        Thread.sleep(50);
-                    }
-                    catch (InterruptedException e) {
-                    }
-                }
-                else {
-                    break;
-                }
-                count++;
+            if (mHostInWhiteList) {
+                return false;
             }
-            if (tpList.matchesTracker(host)) {
+
+            MainApplication app = (MainApplication) mContext.getApplicationContext();
+            TPFilterParser tpList = app.getTrackingProtectionList();
+            if (null == tpList) {
+                return false;
+            }
+
+            if (tpList.matchesTrackerJava(baseHost, host)) {
                 if (null == mThirdPartyHosts) {
-                    mThirdPartyHosts = tpList.findFirstPartyHosts(baseHost).split(",");
+                    mThirdPartyHosts = tpList.findFirstPartyHostsJava(baseHost).split(",");
                 }
 
                 if (null != mThirdPartyHosts) {
@@ -609,7 +737,7 @@ public class ContentView extends FrameLayout {
                 }
 
                 // Temporary whitelist until we have an UI to unblock hosts
-                List<String> whitelistHosts = Arrays.asList("connect.facebook.net");
+                List<String> whitelistHosts = Arrays.asList("connect.facebook.net", "connect.facebook.com", "staticxx.facebook.com", "www.facebook.com", "scontent.xx.fbcdn.net", "pbs.twimg.com", "scontent-sjc2-1.xx.fbcdn.net", "platform.twitter.com", "syndication.twitter.com");
                 if (whitelistHosts.contains(host)) {
                     return false;
                 }
@@ -622,61 +750,97 @@ public class ContentView extends FrameLayout {
 
         @Override
         public String adInsertionList(String baseHost) {
+            if (mHostInWhiteList) {
+                return "";
+            }
+
             MainApplication app = (MainApplication) mContext.getApplicationContext();
             if (!app.mAdInserterEnabled) {
                 return "";
             }
-            AdInserter adInsertionList = null;
-            int count = 0;
-            for (;;) {
-                if (count >= 1000) {  // It is about 50 seconds, we just return false;
-                    return "";
-                }
-                adInsertionList = app.getAdInserter();
-                if (null == adInsertionList) {
-                    try {
-                        Thread.sleep(50);
-                    }
-                    catch (InterruptedException e) {
-                    }
-                }
-                else {
-                    break;
-                }
-                count++;
+            AdInserter adInsertionList = app.getAdInserter();
+            if (null == adInsertionList) {
+                return "";
             }
 
             return adInsertionList.getHostObjects(baseHost);
         }
 
+        private int mConsecutiveRedirectCount = 0;
+
+        @Override
+        public void doUpdateVisitedHistory (String url, boolean isReload, boolean unknownClick) {
+            String peekUrl = "";
+            if (mUrlStack.size() > 0) {
+                peekUrl = mUrlStack.peek().toString();
+            }
+            // We need isReload check when click on links from twitter. It usually has some internal links which are not the same
+            // as real link and isReload is true in that case, so we need to skip them if it is a top website
+            if ((isReload && 0 == mUrlStack.size()) || url.equals("file:///android_asset/blank.html") ||
+                    mUrlStack.size() > 0 && peekUrl.equals(url)) {
+                return;
+            }
+
+            try {
+                URL historyUrl = new URL(url);
+                if (unknownClick) {
+                    // Here we check on anchors change without clicking on them
+                    String ref = historyUrl.getRef();
+                    if (null != ref && 0 != ref.length()
+                            && (ref.indexOf("/") == -1 || ref.equals("/") || ref.length() >= 2 && ref.indexOf("/", 1) == -1)) {
+                        String originalUrl = url.substring(0, url.length() - ref.length() - 1);
+                        if (peekUrl.equals(originalUrl)) {
+                            return;
+                        }
+                        else if (0 != peekUrl.length()){
+                            URL peekURLForRef = new URL(peekUrl);
+                            String peekRef = peekURLForRef.getRef();
+                            if (null != peekRef && 0 != peekRef.length()
+                                    && (peekRef.indexOf("/") == -1 || peekRef.equals("/")
+                                        || peekRef.length() >= 2 && peekRef.indexOf("/", 1) == -1)) {
+                                String originalPeekUrl = peekUrl.substring(0, peekUrl.length() - peekRef.length() - 1);
+                                if (originalPeekUrl.equals(originalUrl)) {
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+                Log.d(TAG, "[urlstack] push:" + url + ", urlStack.size():" + mUrlStack.size());
+                mUrlStack.push(historyUrl);
+                mEventHandler.onCanGoBackChanged(mUrlStack.size() > 1);
+            } catch (MalformedURLException e) {
+            }
+        }
+
         @Override
         public boolean shouldOverrideUrlLoading(String urlAsString, boolean viaUserInput) {
             if (mLifeState != LifeState.Alive) {
+                mConsecutiveRedirectCount = 0;
                 return true;
             }
 
             if (urlAsString.startsWith("tel:")) {
                 Intent intent = new Intent(Intent.ACTION_DIAL, Uri.parse(urlAsString));
                 if (MainApplication.loadIntent(getContext(), intent, urlAsString, mInitialUrlLoadStartTime)) {
-                    MainController.get().switchToBubbleView();
+                    MainController.get().switchToBubbleView(false);
                 }
+                mConsecutiveRedirectCount = 0;
                 return true;
             }
 
-            URL updatedUrl = getUpdatedUrl(urlAsString);
+            URL updatedUrl = getUpdatedUrl(urlAsString, !viaUserInput);
             if (updatedUrl == null) {
                 Log.d(TAG, "ignore unsupported URI scheme: " + urlAsString);
                 showOpenInBrowserPrompt(R.string.unsupported_scheme_default_browser,
                         R.string.unsupported_scheme_no_default_browser, mWebRenderer.getUrl().toString());
+                mConsecutiveRedirectCount = 0;
                 return true;        // true because we've handled the link ourselves
             }
 
             Log.d(TAG, "shouldOverrideUrlLoading() - url:" + urlAsString);
             if (viaUserInput) {
                 URL currentUrl = mWebRenderer.getUrl();
-                mUrlStack.push(currentUrl);
-                mEventHandler.onCanGoBackChanged(mUrlStack.size() > 0);
-                Log.d(TAG, "[urlstack] push:" + currentUrl.toString() + ", urlStack.size():" + mUrlStack.size());// + ", delta:" + touchUpTimeDelta);
                 mHandledAppPickerForCurrentUrl = false;
                 mUsingLinkBubbleAsDefaultForCurrentUrl = false;
             }
@@ -687,7 +851,27 @@ public class ContentView extends FrameLayout {
             //}
             removeCallbacks(mDelayedAutoContentDisplayLinkLoadedRunnable);
 
+            String host;
+            try {
+                URL url = new URL(urlAsString);
+                host = url.getHost();
+                if (host.equals("www.forbes.com")) {
+                    CookieManager.getInstance().setCookie("http://www.forbes.com", "forbes_ab=true");
+                    CookieManager.getInstance().setCookie("http://www.forbes.com", "welcomeAd=true");
+                    CookieManager.getInstance().setCookie("http://www.forbes.com", "adblock_session=Off");
+                    CookieManager.getInstance().setCookie("http://www.forbes.com", "dailyWelcomeCookie=true");
+                    if (url.getPath().equals("/forbes/welcome/") && mConsecutiveRedirectCount < 5) {
+                        mConsecutiveRedirectCount++;
+                        updateAndLoadUrl("http://www.forbes.com/");
+                        return true;
+                    }
+                }
+            } catch (Exception e) {
+            }
+
+            mConsecutiveRedirectCount = 0;
             updateAndLoadUrl(urlAsString);
+            mWebRendererController.resetBubblePanelAdjustment();
             return true;
         }
 
@@ -734,11 +918,16 @@ public class ContentView extends FrameLayout {
             if (urlAsString.equals(Constant.ABOUT_BLANK_URI)) {
                 Log.d(TAG, "ignore " + urlAsString);
             } else if (updateUrl(urlAsString) == false) {
-                List<ResolveInfo> apps = Settings.get().getAppsThatHandleUrl(urlAsString, getContext().getPackageManager());
+                List<ResolveInfo> tempResolveInfos = new ArrayList<>();
+                if (!urlAsString.equals(mContext.getString(R.string.empty_bubble_page))) {
+                    tempResolveInfos = Settings.get().getAppsThatHandleUrl(urlAsString, getContext().getPackageManager());
+                }
+                final List<ResolveInfo> apps = tempResolveInfos;
+
                 boolean openedInApp = apps != null && apps.size() > 0 ? openInApp(apps.get(0), urlAsString) : false;
                 if (openedInApp == false) {
                     CrashTracking.log("ContentView.onPageStarted() - openedInApp == false");
-                    openInBrowser(urlAsString);
+                    openInBrowser(urlAsString, false);
                 }
                 return;
             }
@@ -753,10 +942,16 @@ public class ContentView extends FrameLayout {
             PackageManager packageManager = context.getPackageManager();
 
             URL currentUrl = mWebRenderer.getUrl();
-            updateAppsForUrl(Settings.get().getAppsThatHandleUrl(currentUrl.toString(), packageManager), currentUrl);
+
+            List<ResolveInfo> tempResolveInfos = new ArrayList<>();
+            if (!currentUrl.toString().equals(mContext.getString(R.string.empty_bubble_page))) {
+                tempResolveInfos = Settings.get().getAppsThatHandleUrl(currentUrl.toString(), getContext().getPackageManager());
+            }
+
+            updateAppsForUrl(tempResolveInfos, currentUrl);
             if (Settings.get().redirectUrlToBrowser(currentUrl)) {
                 CrashTracking.log("ContentView.onPageStarted() - url redirects to browser");
-                if (openInBrowser(urlAsString)) {
+                if (openInBrowser(urlAsString, false)) {
                     String title = String.format(context.getString(R.string.link_redirected), Settings.get().getDefaultBrowserLabel());
                     MainApplication.saveUrlInHistory(context, null, urlAsString, title);
                     return;
@@ -789,7 +984,8 @@ public class ContentView extends FrameLayout {
                             continue;
                         }
 
-                        if (info.mResolveInfo.activityInfo.packageName.startsWith("com.linkbubble.playstore")) {
+                        if (info.mResolveInfo.activityInfo.packageName.startsWith("com.linkbubble.playstore")
+                                || info.mResolveInfo.activityInfo.packageName.startsWith("com.brave.playstore")) {
                             isLinkBubblePresent = true;
                             break;
                         }
@@ -869,7 +1065,8 @@ public class ContentView extends FrameLayout {
                 mShareButton.setVisibility(VISIBLE);
             }
 
-            if (urlAsString.equals(Constant.WELCOME_MESSAGE_URL) && MainController.get() != null) {
+            if ((urlAsString.equals(Constant.WELCOME_MESSAGE_URL) ||
+                    urlAsString.equals(getContext().getString(R.string.empty_bubble_page))) && MainController.get() != null) {
                 MainController.get().displayTab(mOwnerTabView);
             }
         }
@@ -896,8 +1093,11 @@ public class ContentView extends FrameLayout {
             }
 
             onPageLoadComplete(urlAsString);
-            if (MainController.get().getCurrentTab() != mOwnerTabView) {
+            if (null != MainController.get() && MainController.get().getCurrentTab() != mOwnerTabView) {
                 mWebRenderer.pauseOnSetInactive();
+            }
+            if (mUrlTextView.getText().toString().equals(getContext().getString(R.string.empty_bubble_page))) {
+                mTitleTextView.performClick();
             }
         }
 
@@ -1124,9 +1324,12 @@ public class ContentView extends FrameLayout {
             }
 
             if (!currentUrl.toString().equals(getContext().getString(R.string.empty_bubble_page))) {
-                // Adding the URL to the auto suggestions list
-                mAdapter.addUrlToAutoSuggestion(currentUrl.toString());
-                MainApplication.saveUrlInHistory(getContext(), null, currentUrl.toString(), currentUrl.getHost(), title);
+                Settings settings = Settings.get();
+                if (null != settings && !settings.isIncognitoMode()) {
+                    // Adding the URL to the auto suggestions list
+                    mAdapter.addUrlToAutoSuggestion(currentUrl.toString());
+                    MainApplication.saveUrlInHistory(getContext(), null, currentUrl.toString(), currentUrl.getHost(), title);
+                }
 
             }
             else {
@@ -1209,7 +1412,11 @@ public class ContentView extends FrameLayout {
                         InputMethodManager.RESULT_UNCHANGED_SHOWN);
 
                 String urlText = metUrl.getText().toString();
-                if (Util.isValidURL(getContext(), urlText)) {
+                String urlToCheck = urlText;
+                if (!urlToCheck.startsWith(getContext().getString(R.string.http_prefix)) &&
+                        !urlToCheck.startsWith(getContext().getString(R.string.https_prefix)))
+                    urlToCheck = getContext().getString(R.string.http_prefix) + urlToCheck;
+                if (Util.isValidURL(getContext(), urlToCheck)) {
                     WorkWithURL(urlText, SearchURLSuggestions.SearchEngine.NONE, true);
                 }
                 else if (null != mFirstSuggestedItem) {
@@ -1267,6 +1474,8 @@ public class ContentView extends FrameLayout {
                     String toCompare = suggestedString.substring(0, urlText.length());
                     if (toCompare.equals(urlText)) {
                         mSetTheRealUrlString = false;
+                        mPreviousMetUrl = metUrl.getText().toString();
+                        mPreviousAppendedString = stringToAppend;
                         metUrl.setText(urlText + stringToAppend);
                         mSetTheRealUrlString = true;
                         metUrl.setSelection(urlText.length(), urlText.length() + stringToAppend.length());
@@ -1288,6 +1497,20 @@ public class ContentView extends FrameLayout {
         @Override
         public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
             String urlText = metUrl.getText().toString();
+            if(mPreviousMetUrl != null && mPreviousAppendedString != null) {
+                // Small hack to get around the autocomplete bug when using ZenUI keyboard
+                String previousUrlText = mPreviousMetUrl + mPreviousAppendedString;
+                int difference = urlText.length() - previousUrlText.length();
+                if(difference == 1) {
+                    String urtlTextStart = urlText.substring(0, mPreviousMetUrl.length());
+                    String urtlTextEnd = urlText.substring(mPreviousMetUrl.length() + 1, urlText.length());
+                    if(urtlTextStart.equals(mPreviousMetUrl) && urtlTextEnd.equals(mPreviousAppendedString)) {
+                        String textToSet = urlText.substring(0, mPreviousMetUrl.length() + 1);
+                        metUrl.setText(textToSet);
+                        metUrl.setSelection(textToSet.length());
+                    }
+                }
+            }
             if (!mFirstTimeUrlTyped &&
                     (urlText.equals(mAdapter.mRealUrlBarConstraint) || mAdapter.mRealUrlBarConstraint.length() > urlText.length())) {
                 mApplyAutoSuggestion = false;
@@ -1353,7 +1576,7 @@ public class ContentView extends FrameLayout {
                 MainController.get().closeTab(mOwnerTabView, true, false);
                 // L_WATCH: L currently lacks getRecentTasks(), so minimize here
                 if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-                    MainController.get().switchToBubbleView();
+                    MainController.get().switchToBubbleView(false);
                 }
             }
         }
@@ -1443,12 +1666,18 @@ public class ContentView extends FrameLayout {
             final Context context = getContext();
             mOverflowPopupMenu = new PopupMenu(context, mOverflowButton);
             Resources resources = context.getResources();
+            final MenuItem siteProtection = mOverflowPopupMenu.getMenu().add(Menu.NONE, R.id.item_site_protection, Menu.NONE, resources.getString(R.string.action_site_protection))
+                    .setCheckable(true)
+                    .setChecked(!mHostInWhiteList);
             if (mCurrentProgress != 100) {
                 mOverflowPopupMenu.getMenu().add(Menu.NONE, R.id.item_stop, Menu.NONE, resources.getString(R.string.action_stop));
             }
             mOverflowPopupMenu.getMenu().add(Menu.NONE, R.id.item_reload_page, Menu.NONE, resources.getString(R.string.action_reload_page));
 
             String defaultBrowserLabel = Settings.get().getDefaultBrowserLabel();
+            if (null == defaultBrowserLabel) {
+                defaultBrowserLabel = resources.getString(R.string.tab_based_browser_name);
+            }
             if (defaultBrowserLabel != null) {
                 mOverflowPopupMenu.getMenu().add(Menu.NONE, R.id.item_open_in_browser, Menu.NONE,
                         String.format(resources.getString(R.string.action_open_in_browser), defaultBrowserLabel));
@@ -1466,6 +1695,15 @@ public class ContentView extends FrameLayout {
                 @Override
                 public boolean onMenuItemClick(MenuItem item) {
                     switch (item.getItemId()) {
+                        case R.id.item_site_protection: {
+                            CrashTracking.log("R.id.item_site_protection");
+                            // This looks backwards, but is correct, as isChecked() isn't true until
+                            // after onMenuItemClick() is called.
+                            AddRemoveHostFromWhiteList(mWebRenderer.getUrl().toString(), siteProtection.isChecked());
+                            HostInWhiteListCheck(mWebRenderer.getUrl().toString());
+                            // We need to go to reload page case.
+                        }
+
                         case R.id.item_reload_page: {
                             CrashTracking.log("R.id.item_reload_page");
                             mWebRenderer.resetPageInspector();
@@ -1486,7 +1724,13 @@ public class ContentView extends FrameLayout {
 
                         case R.id.item_open_in_browser: {
                             CrashTracking.log("ContentView.setOnMenuItemClickListener() - open in browser clicked");
-                            openInBrowser(mWebRenderer.getUrl().toString(), true);
+                            boolean braveBrowser = false;
+                            if (null != item.getTitle()
+                                    && null != context
+                                    && item.getTitle().toString().endsWith(context.getResources().getString(R.string.tab_based_browser_name))) {
+                                braveBrowser = true;
+                            }
+                            openInBrowser(mWebRenderer.getUrl().toString(), true, braveBrowser);
                             break;
                         }
 
@@ -1539,7 +1783,7 @@ public class ContentView extends FrameLayout {
                             Intent intent = new Intent(context, SettingsActivity.class);
                             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                             context.startActivity(intent);
-                            MainController.get().switchToBubbleView();
+                            MainController.get().switchToBubbleView(false);
                             break;
                         }
                     }
@@ -1570,18 +1814,18 @@ public class ContentView extends FrameLayout {
 
     private void onDownloadStart(String urlAsString) {
         CrashTracking.log("onDownloadStart()");
-        openInBrowser(urlAsString);
+        openInBrowser(urlAsString, false);
         if (MainController.get() != null) {
             MainController.get().closeTab(mOwnerTabView, true, false);
             // L_WATCH: L currently lacks getRecentTasks(), so minimize here
             if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-                MainController.get().switchToBubbleView();
+                MainController.get().switchToBubbleView(false);
             }
         }
     }
 
     private boolean onBackPressed() {
-        if (mUrlStack.size() == 0) {
+        if (mUrlStack.size() <= 1) {
             CrashTracking.log("onBackPressed() - closeTab()");
             if (MainController.get() != null) {
                 MainController.get().closeTab(mOwnerTabView, BubbleAction.BackButton, true, true);
@@ -1592,13 +1836,14 @@ public class ContentView extends FrameLayout {
             mWebRenderer.stopLoading();
             String urlBefore = mWebRenderer.getUrl().toString();
 
-            URL previousUrl = mUrlStack.pop();
+            mUrlStack.pop();
+            URL previousUrl = mUrlStack.peek();
             String previousUrlAsString = previousUrl.toString();
-            mEventHandler.onCanGoBackChanged(mUrlStack.size() > 0);
+            mEventHandler.onCanGoBackChanged(mUrlStack.size() > 1);
             mHandledAppPickerForCurrentUrl = false;
             mUsingLinkBubbleAsDefaultForCurrentUrl = false;
-            updateAndLoadUrl(previousUrlAsString);
             Log.d(TAG, "[urlstack] Go back: " + urlBefore + " -> " + mWebRenderer.getUrl() + ", urlStack.size():" + mUrlStack.size());
+            updateAndLoadUrl(previousUrlAsString);
             updateUrlTitleAndText(previousUrlAsString);
 
             mEventHandler.onPageLoading(mWebRenderer.getUrl());
@@ -1609,6 +1854,13 @@ public class ContentView extends FrameLayout {
 
             mWebRenderer.resetPageInspector();
             configureOpenEmbedButton();
+            // The WebView doesn't reload on all pages correctly if call only loadUrl, seems like there is some kind of cache as
+            // it loads fast on back but doesn't load pictures for thestar.com website. clearCache method doesn't work also. Only
+            // reload works nice here. Perhaps it is some bu in API as lots of people say that problem with loadUrl method
+            // That is the temp fix, thestar.com has a new beta website and it works great with it without reloading
+            if (previousUrlAsString.endsWith("m.thestar.com/#/?referrer=")) {
+                mWebRenderer.reload();
+            }
 
             return true;
         }
@@ -1694,7 +1946,7 @@ public class ContentView extends FrameLayout {
                 } if (string.equals(openLinkInNewBubbleLabel) || string.equals(openImageInNewBubbleLabel)) {
                     MainController.get().openUrl(urlAsString, System.currentTimeMillis(), false, Analytics.OPENED_URL_FROM_NEW_TAB);
                 } else if (openInBrowserLabel != null && string.equals(openInBrowserLabel)) {
-                    openInBrowser(urlAsString);
+                    openInBrowser(urlAsString, false);
                 } else if (string.equals(shareLabel)) {
                     showSelectShareMethod(urlAsString, false);
                 } else if (string.equals(saveImageLabel)) {
@@ -1794,7 +2046,12 @@ public class ContentView extends FrameLayout {
     }
 
     private void updateAppsForUrl(URL url) {
-        List<ResolveInfo> resolveInfos = Settings.get().getAppsThatHandleUrl(url.toString(), getContext().getPackageManager());
+        String urlString = url.toString();
+        List<ResolveInfo> tempResolveInfos = new ArrayList<>();
+        if (!urlString.equals(mContext.getString(R.string.empty_bubble_page))) {
+            tempResolveInfos = Settings.get().getAppsThatHandleUrl(urlString, getContext().getPackageManager());
+        }
+        final List<ResolveInfo> resolveInfos = tempResolveInfos;
         updateAppsForUrl(resolveInfos, url);
     }
 
@@ -1962,7 +2219,8 @@ public class ContentView extends FrameLayout {
         if (urlAsString.equals(mWebRenderer.getUrl().toString()) == false) {
             try {
                 Log.d(TAG, "change url from " + mWebRenderer.getUrl() + " to " + urlAsString);
-                mWebRenderer.setUrl(urlAsString);
+                HostInWhiteListCheck(urlAsString);
+                mWebRenderer.setUrl(mWebRendererController.getHTTPSUrl(urlAsString));
             } catch (MalformedURLException e) {
                 return false;
             }
@@ -1987,11 +2245,26 @@ public class ContentView extends FrameLayout {
         mWebRenderer.loadUrl(updatedUrl, mode);
     }
 
-    private URL getUpdatedUrl(String urlAsString) {
+    private void cleanVisitedHistory(String urlToLook) {
+        String peekUrl = "";
+        if (mUrlStack.size() > 0) {
+            peekUrl = mUrlStack.peek().toString();
+        }
+        if (peekUrl.equals(urlToLook)) {
+            mUrlStack.pop();
+            mEventHandler.onCanGoBackChanged(mUrlStack.size() > 1);
+        }
+    }
+
+    private URL getUpdatedUrl(String urlAsString, boolean cleanVisitedHistory) {
         URL currentUrl = mWebRenderer.getUrl();
+        String currentUrlString = currentUrl.toString();
         if (urlAsString.equals(currentUrl.toString()) == false) {
+            if (cleanVisitedHistory) {
+                cleanVisitedHistory(currentUrlString);
+            }
             try {
-                Log.d(TAG, "getUpdatedUrl(): change url from " + currentUrl + " to " + urlAsString);
+                Log.d(TAG, "getUpdatedUrl(): change url from " + currentUrlString + " to " + urlAsString);
                 return new URL(urlAsString);
             } catch (MalformedURLException e) {
                 return null;
@@ -2034,21 +2307,21 @@ public class ContentView extends FrameLayout {
         }
     }
 
-    private boolean openInBrowser(String urlAsString) {
-        return openInBrowser(urlAsString, false);
+    private boolean openInBrowser(String urlAsString, boolean braveBrowser) {
+        return openInBrowser(urlAsString, false, braveBrowser);
     }
 
-    private boolean openInBrowser(String urlAsString, boolean canShowUndoPrompt) {
+    private boolean openInBrowser(String urlAsString, boolean canShowUndoPrompt, boolean braveBrowser) {
         Log.d(TAG, "ContentView.openInBrowser() - url:" + urlAsString);
         CrashTracking.log("ContentView.openInBrowser()");
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setData(Uri.parse(urlAsString));
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        if (MainApplication.openInBrowser(getContext(), intent, true) && MainController.get() != null && mOwnerTabView != null) {
+        if (MainApplication.openInBrowser(getContext(), intent, true, braveBrowser) && MainController.get() != null && mOwnerTabView != null) {
             MainController.get().closeTab(mOwnerTabView, MainController.get().contentViewShowing(), canShowUndoPrompt);
             // L_WATCH: L currently lacks getRecentTasks(), so minimize here
             if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-                MainController.get().switchToBubbleView();
+                MainController.get().switchToBubbleView(false);
             }
             return true;
         }
@@ -2071,8 +2344,8 @@ public class ContentView extends FrameLayout {
             Settings.get().addRedirectToApp(urlAsString);
 
             // L_WATCH: L currently lacks getRecentTasks(), so minimize here
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-                MainController.get().switchToBubbleView();
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT && null != mainController) {
+                mainController.switchToBubbleView(false);
             }
             return true;
         }
@@ -2094,7 +2367,7 @@ public class ContentView extends FrameLayout {
             public void onActionClick() {
                 if (urlAsString != null) {
                     CrashTracking.log("ContentView.showOpenInBrowserPrompt() - onActionClick()");
-                    openInBrowser(urlAsString);
+                    openInBrowser(urlAsString, false);
                 }
             }
             @Override

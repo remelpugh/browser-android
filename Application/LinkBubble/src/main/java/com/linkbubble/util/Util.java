@@ -92,8 +92,13 @@ public class Util {
         "com.uc.browser.en",
         "mobi.browser.flashfox",
         "acr.browser.barebones",
+        "acr.browser.lightning",
         "com.ineedyourservice.RBrowser",
         "com.lastpass.lpandroid",
+        "com.linkbubble.playstore",
+        "com.linkbubble.playstore.dev",
+        "com.brave.playstore",          // Made that temporary(remove when merge to master)
+        "com.brave.playstore.dev",       // Made that temporary(remove when merge to master)
         "arun.com.chromer",
         "com.jiubang.browser",
         "com.uc.browser.hd",
@@ -106,7 +111,26 @@ public class Util {
         "net.fast.web.browser",
         "com.wisesharksoftware.browser",
         "org.hola",
-        "com.brave.playstore"
+        "com.kk.jd.browser2",
+        "com.rsbrowser.browser",
+        "org.chromium.chrome",
+        "com.ineedyourservice.RBrowser",
+        "jp.co.fenrir.android.sleipnir",
+        "jp.co.fenrir.android.sleipnir_test",
+        "tugapower.codeaurora.browser",
+        "com.fevdev.nakedbrowser",
+        "com.fevdev.nakedbrowserpro",
+        "com.yandex.browser",
+        "com.yandex.browser.alpha",
+        "com.yandex.browser.beta",
+        "com.flyperinc.flyperlink",
+        "com.wSpeedBrowser4G",
+        "com.wSpeedBrowsermini",
+        "com.mokee.yubrowser",
+        "org.mozilla.fennec",
+        "org.gnu.icecat",
+        "devian.tubemate.home",
+        "com.brave.browser"
     };
 
     public static float clamp(float v0, float v, float v1) {
@@ -630,7 +654,13 @@ public class Util {
     }
 
     public static boolean isValidBrowserPackageName(String packageName) {
-        if (packageName.equals(BuildConfig.APPLICATION_ID) || packageName.contains("com.digitalashes.tappath") || packageName.contains("com.linkbubble")) {
+        if (packageName.equals(BuildConfig.APPLICATION_ID) || packageName.contains("com.digitalashes.tappath")) {
+            return false;
+        }
+        if (BuildConfig.APPLICATION_ID.contains("com.linkbubble") && packageName.contains("com.linkbubble")) {
+            return false;
+        }
+        else if (BuildConfig.APPLICATION_ID.contains("com.brave.playstore") && packageName.contains("com.brave.playstore")) {
             return false;
         }
 

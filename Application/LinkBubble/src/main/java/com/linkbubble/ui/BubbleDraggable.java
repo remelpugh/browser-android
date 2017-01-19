@@ -112,8 +112,8 @@ public class BubbleDraggable extends BubbleView implements Draggable {
         });
     }
 
-    public void switchToBubbleView() {
-        doAnimateToBubbleView(0);
+    public void switchToBubbleView(boolean fromCloseSystemDialogs) {
+        doAnimateToBubbleView(0, fromCloseSystemDialogs);
     }
 
     public void switchToExpandedView() {
@@ -132,7 +132,7 @@ public class BubbleDraggable extends BubbleView implements Draggable {
                 if (mMode == Mode.ContentView && action == Constant.BubbleAction.Close) {
                     doAnimateToContentView();
                 } else {
-                    doAnimateToBubbleView(0);
+                    doAnimateToBubbleView(0, false);
                 }
             } else {
                 mMode = Mode.BubbleView;
@@ -272,13 +272,16 @@ public class BubbleDraggable extends BubbleView implements Draggable {
         MainApplication.postEvent(getContext(), mEndCollapseTransitionEvent);
     }
 
-    private void doAnimateToBubbleView(int animTimeMs) {
+    private void doAnimateToBubbleView(int animTimeMs, boolean fromCloseSystemDialogs) {
         if (mAnimActive) {
             if (mMode == Mode.BubbleView) {
                 return;
             } else {
                 mDraggableHelper.cancelAnimation();
             }
+        }
+        if (fromCloseSystemDialogs && Mode.BubbleView == mMode) {
+            return;
         }
 
         //StackTraceElement[] cause = Thread.currentThread().getStackTrace();
@@ -331,7 +334,7 @@ public class BubbleDraggable extends BubbleView implements Draggable {
         mainController.collapseBubbleFlow((long) (contentPeriod * 1000));
 
         mBeginCollapseTransitionEvent.mPeriod = contentPeriod;
-        MainApplication.postEvent(getContext(), mBeginCollapseTransitionEvent);
+        MainApplication.postEvent(getContext(), new MainController.BeginCollapseTransitionEvent(fromCloseSystemDialogs));
     }
 
     private void doAnimateToContentView() {
@@ -565,7 +568,7 @@ public class BubbleDraggable extends BubbleView implements Draggable {
                                 doAnimateToContentView();
                             } else {
                                 CrashTracking.log("BubbleDraggable.configure(): onActionUp() - doAnimateToBubbleView()");
-                                doAnimateToBubbleView(0);
+                                doAnimateToBubbleView(0, false);
                             }
                         }
                     }
@@ -644,7 +647,7 @@ public class BubbleDraggable extends BubbleView implements Draggable {
     @Override
     public void onOrientationChanged() {
         if (mMode == Mode.BubbleView) {
-            doAnimateToBubbleView(1);
+            doAnimateToBubbleView(1, false);
         } else {
             switchToExpandedView();
         }
@@ -655,7 +658,12 @@ public class BubbleDraggable extends BubbleView implements Draggable {
     }
 
     public void setTargetPos(int xp, int yp, float t, DraggableHelper.AnimationType type, DraggableHelper.AnimationEventListener listener) {
-        Util.Assert(!mAnimActive, "mAnimActive:" + mAnimActive);
+        try {
+            Util.Assert(!mAnimActive, "mAnimActive:" + mAnimActive);
+        }
+        catch (AssertionError e) {
+            e.printStackTrace();
+        }
         //Util.Assert(t > 0.0f, "t:" + t);      // Don't think this happens anymore - just to catch if it does happen and investigate why.
         mAnimActive = listener != null;
         mDraggableHelper.setTargetPos(xp, yp, t, type, listener);

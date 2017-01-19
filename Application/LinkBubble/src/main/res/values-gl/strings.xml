@@ -2,7 +2,7 @@
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
 
     
-    <string name="send_intent_label">Abrir con Link Bubble</string>
+    
     <string name="notification_summary">Toca para agochar todas as burbullas abertas</string>
     
     
@@ -23,6 +23,7 @@
     <string name="action_settings">Axustes</string>
     <string name="action_help">Axuda</string>
     <string name="action_reload_page">Volver cargar</string>
+    
     
     
     <string name="action_open_in_new_bubble">Abrir nunha nova burbulla</string>
@@ -126,6 +127,17 @@
     
     
     
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     <string-array name="preference_user_agent_options">
         <item>Default</item>
         <item>Chrome Phone</item>
@@ -180,6 +192,7 @@
     <string name="loading">A cargar...</string>
 
     <string name="histroy_unread">Sen ler</string>
+    
     
     <string name="history">Historial</string>
     
@@ -262,9 +275,9 @@
     
 
     
-    <string name="credits_name">Link Bubble</string>
+    
     <string name="credits_credit">Concepto, deseño e programación</string>
-    <string name="credits_app_copyright">Copyright 2015, Link Bubble.</string>
+    
 
     
     <plurals name="restore_tabs_from_previous_session">
@@ -287,9 +300,9 @@
     
 
     
-    <string name="notification_title">Link Bubble</string>
+    
 
-    <string name="store_listing_title">Link Bubble</string>
+    
     
     
     
@@ -312,6 +325,15 @@
 
     
 
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
     
     

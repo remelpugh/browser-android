@@ -5,13 +5,10 @@
   "scripts": {
     "translate": "babel-node scripts/updateTranslations.js",
     "postinstall": "sh ./scripts/copyJNIFiles.js",
-    "lint": "semistandard scripts/* Application/LinkBubble/src/main/assets/pagescripts/*"
+    "lint": "semistandard Application/LinkBubble/src/main/assets/pagescripts/*"
   },
-  "repository": {
-    "type": "git",
-    "url": "git://github.com/brave/link-bubble.git"
-  },
-  "author": "The Link Bubble Team <support@linkbubble.com>",
+  "repository": "brave/browser-android",
+  "author": "Brave Software <support@brave.com>",
   "licenses": [
     {
       "type": "MPL",
@@ -20,14 +17,14 @@
     }
   ],
   "bugs": {
-    "url": "https://github.com/brave/link-bubble/issues"
+    "url": "https://github.com/brave/browser-android/issues"
   },
   "devDependencies": {
     "babel": "^5.8.21",
     "semistandard": "^7.0.2"
   },
   "dependencies": {
-    "abp-filter-parser-cpp": "^1.0.15",
+    "abp-filter-parser-cpp": "^1.1.5",
     "tracking-protection": "^1.0.8"
   }
 }
